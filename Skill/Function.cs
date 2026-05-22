@@ -54,31 +54,39 @@ public class Function
 
         LogInputData(input, context);
 
-
+        SkillResponse response;
         switch (input.Request)
         {
+            
             case LaunchRequest lauchRequest:
-                return WelcomeUser(context);
+                response = WelcomeUser(context);
+                break;
             case IntentRequest intentRequest:
                 switch (intentRequest.Intent.Name)
                 {
                     case "SetFirstName":
-                        return SetFirstName(context, intentRequest);
+                        response = SetFirstName(context, intentRequest);
+                        break;
                     case "GetTodo":
-                        return await GetTodo(context, intentRequest);
+                        response = await GetTodo(context, intentRequest);
+                        break;
                     case "GetBalance":
-                        return await GetBalance(context, intentRequest);
+                        response = await GetBalance(context, intentRequest);
+                        break;
                     default:
-                        return ResponseBuilder.Tell("Au revoir.");
+                        response = ResponseBuilder.Tell("Au revoir.");
+                        break;
 
                 }
-            //case SessionEndedRequest sessionEndedRequest:
-            //    return ResponseBuilder.Tell("La fonction est appelée correctement.");
-
-
+                break;
+            default:
+            case SessionEndedRequest sessionEndedRequest:
+                response = ResponseBuilder.Tell("La fonction est appelée correctement.");
+                break;
         }
-
-        return ResponseBuilder.Tell("Au revoir.");
+        
+        response.SessionAttributes = CurrentSession.Session;
+        return response;
     }
 
     private async Task<SkillResponse> GetTodo(ILambdaContext context, IntentRequest intentRequest)

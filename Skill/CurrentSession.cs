@@ -2,7 +2,7 @@
 
 internal class CurrentSession
 {
-    private Dictionary<string, object?> Session { get; set; }
+    public Dictionary<string, object?> Session { get; set; }
 
     public CurrentSession(Dictionary<string, object?> session) {
         Session = session;
