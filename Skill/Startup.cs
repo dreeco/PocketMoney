@@ -1,8 +1,8 @@
-﻿using Domain.Repositories;
+﻿using Application;
+using Domain.Repositories;
 using Infrastructure.DataAccess;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using static CSharpFunctionalExtensions.Result;
 
 namespace Skill;
 
@@ -38,6 +38,7 @@ public class Startup
 
     private static void RegisterApplicationImplementations(ServiceCollection services)
     {
+        services.AddSingleton<TaskSelector, TaskSelector>();
     }
 
     private static void RegisterInfrastructureImplementations(ServiceCollection services)

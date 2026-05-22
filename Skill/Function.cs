@@ -4,8 +4,11 @@ using Alexa.NET.Request.Type;
 using Alexa.NET.Response;
 using Alexa.NET.Response.Directive;
 using Amazon.Lambda.Core;
+using Application;
+using Domain.Entities;
 using Domain.Repositories;
 using Microsoft.Extensions.DependencyInjection;
+using Skill.Helpers;
 
 // Assembly attribute to enable the Lambda function's JSON input to be converted into a .NET class.
 [assembly: LambdaSerializer(typeof(Amazon.Lambda.Serialization.Json.JsonSerializer))]
@@ -24,13 +27,16 @@ public class Function
     /// </summary>
     public Function() : this(new Startup().ConfigureServices()) { }
 
-    private ICleaningTasksRepository CleaningTasksRepository { get; set; }
+    private TaskSelector TaskSelector { get; set; }
+    private CurrentSession CurrentSession { get; set; }
 
     public Function(IServiceProvider serviceProvider)
     {
         _serviceProvider = serviceProvider;
 
-        CleaningTasksRepository = serviceProvider.GetRequiredService<ICleaningTasksRepository>();
+        TaskSelector = serviceProvider.GetRequiredService<TaskSelector>();
+
+        CurrentSession = new CurrentSession(new());
     }
 
     /// <summary>
@@ -43,6 +49,8 @@ public class Function
     {
         if (context == null || input == null)
             return ResponseBuilder.Tell("Impossible de lancer l'argent de poche. Demander de l'aide à papa.");
+
+        CurrentSession = new CurrentSession(input.Session.Attributes);
 
         LogInputData(input, context);
 
@@ -57,9 +65,9 @@ public class Function
                     case "SetFirstName":
                         return SetFirstName(context, intentRequest);
                     case "GetTodo":
-                        return GetTodo(context, intentRequest);
+                        return await GetTodo(context, intentRequest);
                     case "GetBalance":
-                        return GetBalance(context, intentRequest);
+                        return await GetBalance(context, intentRequest);
                     default:
                         return ResponseBuilder.Tell("Au revoir.");
 
@@ -73,28 +81,43 @@ public class Function
         return ResponseBuilder.Tell("Au revoir.");
     }
 
-    private SkillResponse GetTodo(ILambdaContext context, IntentRequest intentRequest)
+    private async Task<SkillResponse> GetTodo(ILambdaContext context, IntentRequest intentRequest)
     {
-        var prompt = $"Va nettoyer le caca !";
+        var todoResult = await TaskSelector.GetTaskFor(new Member(CurrentSession.FirstName));
+        if (!todoResult.TryGetValue(out var todo))
+            ResponseBuilder.Tell("Il y a eu un problème pour récupérer une tâche à faire. Tu pourras retenter un peu plus tard.");
+
+        var prompt = $"Tu peux {todo!.name} pour {todo.points} centimes. Acceptes-tu ou souhaites-tu une autre tâche ?";
         var response = ResponseBuilder.Ask(prompt, new Reprompt() { OutputSpeech = new Reprompt(prompt).OutputSpeech });
+
         return response;
     }
 
-    private SkillResponse GetBalance(ILambdaContext context, IntentRequest intentRequest)
+    private async Task<SkillResponse> GetBalance(ILambdaContext context, IntentRequest intentRequest)
     {
-        var prompt = $"Tu dois un million d'euros à papa !";
+        var balanceResult = await TaskSelector.GetMemberBalance(new Member(CurrentSession.FirstName));
+        if (!balanceResult.TryGetValue(out var balance))
+            ResponseBuilder.Tell("Il y a eu un problème pour récupérer ton solde d'argent de poche. Tu pourras retenter un peu plus tard.");
+
+        var prompt = AmountHelper.GetAmountToPromptText(balance!.amount);
         var response = ResponseBuilder.Ask(prompt, new Reprompt() { OutputSpeech = new Reprompt(prompt).OutputSpeech });
         return response;
     }
 
     private SkillResponse SetFirstName(ILambdaContext context, IntentRequest intentRequest)
     {
-        var firstName = intentRequest.Intent.Slots.Single().Value.SlotValue.Value.Trim();
-        firstName = char.ToUpper(firstName[0]) + firstName.Substring(1).ToLower();
+        string firstName = GetFirstNameFromSlot(intentRequest);
+
+        CurrentSession.FirstName = firstName;
 
         var prompt = $"Bonjour {firstName}. Veux-tu une tâche à faire ou connaître ton solde d'argent de poche ?";
         var response = ResponseBuilder.Ask(prompt, new Reprompt() { OutputSpeech = new Reprompt(prompt).OutputSpeech });
         return response;
+    }
+
+    private static string GetFirstNameFromSlot(IntentRequest intentRequest)
+    {
+        return intentRequest.Intent.Slots.Single().Value.SlotValue.Value.Trim();
     }
 
     private SkillResponse WelcomeUser(ILambdaContext context)
@@ -128,7 +151,7 @@ public class Function
             UpdatedIntent = new Intent
             {
                 Name = "SetFirstName",
-                Slots = new Dictionary<string, Slot> { {"firstName", new Slot { Name = "firstName" } } }
+                Slots = new Dictionary<string, Slot> { { "firstName", new Slot { Name = "firstName" } } }
             }
         });
 

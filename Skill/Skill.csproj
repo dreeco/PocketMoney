@@ -20,7 +20,6 @@
 		<!--<PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" Version="3.0.0" />-->
 
 		<PackageReference Include="Amazon.Lambda.RuntimeSupport" Version="2.1.0" />
-		<PackageReference Include="Amazon.Lambda.Core" Version="2.4.0" />
 		<PackageReference Include="Amazon.Lambda.Serialization.Json" Version="3.0.0" />
 		<PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" Version="3.0.0" />
 
