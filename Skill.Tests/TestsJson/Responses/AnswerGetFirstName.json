@@ -3,12 +3,12 @@
     "response": {
       "outputSpeech": {
         "type": "PlainText",
-        "text": "Bonjour Lucie, Tu peux me demander une tâche à faire dans la maison en disant : \"Donne-moi une tâche\". Ou bien connaître ton solde d'argent de poche en disant \"Je veux savoir combien j'ai\". Que veux-tu ?"
+        "text": "Bonjour Lucie. Veux-tu une tâche à faire ou connaître ton solde d'argent de poche ?"
       },
       "reprompt": {
         "outputSpeech": {
           "type": "PlainText",
-          "text": "Bonjour Lucie, Tu peux me demander une tâche à faire dans la maison en disant : \"Donne-moi une tâche\". Ou bien connaître ton solde d'argent de poche en disant \"Je veux savoir combien j'ai\". Que veux-tu ?"
+          "text": "Bonjour Lucie. Veux-tu une tâche à faire ou connaître ton solde d'argent de poche ?"
         }
       },
       "shouldEndSession": false,

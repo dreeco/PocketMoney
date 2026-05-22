@@ -92,7 +92,7 @@ public class Function
         var firstName = intentRequest.Intent.Slots.Single().Value.SlotValue.Value.Trim();
         firstName = char.ToUpper(firstName[0]) + firstName.Substring(1).ToLower();
 
-        var prompt = $"Bonjour {firstName}, Tu peux me demander une tâche à faire dans la maison en disant : \"Donne-moi une tâche\". Ou bien connaître ton solde d'argent de poche en disant \"Je veux savoir combien j'ai\". Que veux-tu ?";
+        var prompt = $"Bonjour {firstName}. Veux-tu une tâche à faire ou connaître ton solde d'argent de poche ?";
         var response = ResponseBuilder.Ask(prompt, new Reprompt() { OutputSpeech = new Reprompt(prompt).OutputSpeech });
         return response;
     }

@@ -17,7 +17,7 @@ public class FunctionTest : BaseFunctionTest
     }
     
     [Theory]
-    //[InlineData("Base")]
+    [InlineData("Base")]
     [InlineData("AnswerGetFirstName")]
     public async Task ShouldProvideExpectedResponse_WhenCallingFunction_WithSpecificRequest(string fileName)
     {
