@@ -3,5 +3,7 @@
   <Project Path="Application/Application.csproj" />
   <Project Path="Domain/Domain.csproj" />
   <Project Path="Infrastructure/Infrastructure.csproj" />
+  <Project Path="Skill.Tests/Skill.Tests.csproj" />
+  <Project Path="Skill/Skill.csproj" />
   <Project Path="TM/Console.csproj" />
 </Solution>
