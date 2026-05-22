@@ -1,0 +1,31 @@
+{
+  "version": "1.0",
+  "response": {
+    "outputSpeech": {
+      "type": "PlainText",
+      "text": "Bonjour, à qui ais-je l'honneur ? Lucie, Alix ou Elio ?"
+    },
+    "directives": [
+      {
+        "type": "Dialog.ElicitSlot",
+        "updatedIntent": {
+          "name": "SetFirstName",
+          "slots": {
+            "firstName": {
+              "name": "firstName"
+            }
+          }
+        },
+        "slotToElicit": "SetFirstName"
+      }
+    ],
+    "reprompt": {
+      "outputSpeech": {
+        "type": "PlainText",
+        "text": "Bonjour, à qui ais-je l'honneur ? Lucie, Alix ou Elio ?"
+      }
+    },
+    "shouldEndSession": false,
+    "type": "_DEFAULT_RESPONSE"
+  }
+}

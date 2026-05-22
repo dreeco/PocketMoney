@@ -1,0 +1,17 @@
+{
+    "version": "1.0",
+    "response": {
+      "outputSpeech": {
+        "type": "PlainText",
+        "text": "Bonjour Lucie, Tu peux me demander une tâche à faire dans la maison en disant : \"Donne-moi une tâche\". Ou bien connaître ton solde d'argent de poche en disant \"Je veux savoir combien j'ai\". Que veux-tu ?"
+      },
+      "reprompt": {
+        "outputSpeech": {
+          "type": "PlainText",
+          "text": "Bonjour Lucie, Tu peux me demander une tâche à faire dans la maison en disant : \"Donne-moi une tâche\". Ou bien connaître ton solde d'argent de poche en disant \"Je veux savoir combien j'ai\". Que veux-tu ?"
+        }
+      },
+      "shouldEndSession": false,
+      "type": "_DEFAULT_RESPONSE"
+    }
+}

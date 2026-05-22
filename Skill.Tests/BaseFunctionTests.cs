@@ -2,6 +2,10 @@
 using Alexa.NET.Request.Type;
 using Alexa.NET.Response;
 using Amazon.Lambda.TestUtilities;
+using Domain.Repositories;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Moq;
 using Xunit;
 
 namespace Skill.Tests;
@@ -18,8 +22,13 @@ public class BaseFunctionTest
         _context = new TestLambdaContext() { ClientContext = new TestClientContext() { Custom = new Dictionary<string, string>() } };
         _request = new SkillRequest();
         _request.Session = new Session();
-        //_request.Session.Attributes = new HomeworkSession();
-        _sut = new Function();
+        var serviceCollection = new ServiceCollection();
+
+        var cleaningTaskRepositoryMock = Mock.Of<ICleaningTasksRepository>(MockBehavior.Strict);
+
+        serviceCollection.AddSingleton(cleaningTaskRepositoryMock);
+
+        _sut = new Function(serviceCollection.BuildServiceProvider());
     }
 
     protected static T ThenThereIsAnOutputSpeech<T>(SkillResponse response) where T : class, IOutputSpeech

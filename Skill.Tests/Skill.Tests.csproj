@@ -10,6 +10,7 @@
     <PackageReference Include="Amazon.Lambda.Core" Version="3.1.0" />
     <PackageReference Include="Amazon.Lambda.TestUtilities" Version="4.1.0" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.5.1" />
+    <PackageReference Include="Moq" Version="4.20.72" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
   </ItemGroup>
@@ -17,8 +18,23 @@
     <ProjectReference Include="..\Skill\Skill.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <None Update="TestsJson\Requests\AnswerGetFirstName.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Update="TestsJson\Requests\Base.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Update="TestsJson\Requests\Base2.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="TestsJson\Responses\AnswerGetFirstName.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="TestsJson\Responses\Base.Json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <Folder Include="TestsJson\Responses\" />
   </ItemGroup>
 </Project>

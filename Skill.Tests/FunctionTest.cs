@@ -9,8 +9,6 @@ namespace Skill.Tests;
 
 public class FunctionTest : BaseFunctionTest
 {
-    private const string FileName = "Base";
-
     [Fact]
     public async Task TestToUpperFunction()
     {
@@ -18,14 +16,16 @@ public class FunctionTest : BaseFunctionTest
         await _sut.FunctionHandler(_request, _context);
     }
     
-    [Fact]
-    public async Task ShouldProvideExpectedResponse_WhenCallingFunction_WithSpecificRequest()
+    [Theory]
+    //[InlineData("Base")]
+    [InlineData("AnswerGetFirstName")]
+    public async Task ShouldProvideExpectedResponse_WhenCallingFunction_WithSpecificRequest(string fileName)
     {
-        var skillRequest = ReadRequestFile(FileName);
+        var skillRequest = ReadRequestFile(fileName);
 
         var response = await _sut.FunctionHandler(skillRequest, new TestLambdaContext());
 
-        var responseObject = ReadResponseFile(FileName);
+        var responseObject = ReadResponseFile(fileName);
 
         Assert.Equivalent(responseObject, response);
     }
