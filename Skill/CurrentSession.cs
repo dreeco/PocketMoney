@@ -18,4 +18,16 @@ internal class CurrentSession
             Session["FirstName"] = char.ToUpper(value[0]) + value?.Substring(1).ToLower();
         }
     }
+
+    public string LastTask
+    {
+        get
+        {
+            return Session["LastTask"]?.ToString() ?? string.Empty;
+        }
+        set
+        {
+            Session["LastTask"] = char.ToUpper(value[0]) + value?.Substring(1).ToLower();
+        }
+    }
 }

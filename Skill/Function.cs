@@ -7,6 +7,7 @@ using Amazon.Lambda.Core;
 using Application;
 using Domain.Entities;
 using Domain.Repositories;
+using Infrastructure.DataAccess;
 using Microsoft.Extensions.DependencyInjection;
 using Skill.Helpers;
 
@@ -29,12 +30,14 @@ public class Function
 
     private TaskSelector TaskSelector { get; set; }
     private CurrentSession CurrentSession { get; set; }
+    private ICleaningTasksRepository CleaningTasksRepository { get; set; }
 
     public Function(IServiceProvider serviceProvider)
     {
         _serviceProvider = serviceProvider;
 
         TaskSelector = serviceProvider.GetRequiredService<TaskSelector>();
+        CleaningTasksRepository = serviceProvider.GetRequiredService<ICleaningTasksRepository>();
 
         CurrentSession = new CurrentSession(new());
     }
@@ -67,6 +70,14 @@ public class Function
                     case "SetFirstName":
                         response = SetFirstName(context, intentRequest);
                         break;
+                    case "Accept":
+                    case "AMAZON.YesIntent":
+                        response = await Accept(context, intentRequest);
+                        break;
+                    case "Decline":
+                    case "AMAZON.NoIntent":
+                        response = await Decline(context, intentRequest);
+                        break;
                     case "GetTodo":
                         response = await GetTodo(context, intentRequest);
                         break;
@@ -76,7 +87,6 @@ public class Function
                     default:
                         response = ResponseBuilder.Tell("Au revoir.");
                         break;
-
                 }
                 break;
             default:
@@ -86,14 +96,50 @@ public class Function
         }
         
         response.SessionAttributes = CurrentSession.Session;
+        context.Logger.LogInformation($"Skill is answering: {System.Text.Json.JsonSerializer.Serialize(response)}");
+
         return response;
+    }
+
+    private async Task<SkillResponse> Accept(ILambdaContext context, IntentRequest intentRequest)
+    {
+        context.Logger.LogInformation($"Accepting task for {CurrentSession.LastTask}");
+
+        var taskResult = await CleaningTasksRepository.GetTask(CurrentSession.LastTask);
+        if (!taskResult.TryGetValue(out var task))
+            return ResponseBuilder.Tell($"Il y a eu un problème pour récupérer la tâche {CurrentSession.LastTask}. Tu pourras retenter un peu plus tard.");
+
+        return ResponseBuilder.Tell($"Okay, c'est noté ! Voici comment t'y prendre : " + task!.description);
+    }
+
+    private async Task<SkillResponse> Decline(ILambdaContext context, IntentRequest intentRequest)
+    {
+        context.Logger.LogInformation($"Declining task for {CurrentSession.LastTask}");
+
+        var taskResult = await CleaningTasksRepository.GetTask(CurrentSession.LastTask);
+        if (!taskResult.TryGetValue(out var task))
+            return ResponseBuilder.Tell($"Il y a eu un problème pour récupérer la tâche {CurrentSession.LastTask}. Tu pourras retenter un peu plus tard.");
+
+        var todoResult = await TaskSelector.GetTaskFor(new Member(CurrentSession.FirstName));
+        if (!todoResult.TryGetValue(out var todo))
+            return ResponseBuilder.Tell("Il y a eu un problème pour récupérer une tâche à faire. Tu pourras retenter un peu plus tard.");
+
+        CurrentSession.LastTask = todo.name;
+
+        var prompt = $"Tu peux {todo!.name} pour {todo.points} centimes. Acceptes-tu ou souhaites-tu une autre tâche ?";
+
+        return ResponseBuilder.Tell($"Okay, en voici une autre : {prompt}.");
     }
 
     private async Task<SkillResponse> GetTodo(ILambdaContext context, IntentRequest intentRequest)
     {
+        context.Logger.LogInformation($"Requesting task for {CurrentSession.FirstName}");
+
         var todoResult = await TaskSelector.GetTaskFor(new Member(CurrentSession.FirstName));
         if (!todoResult.TryGetValue(out var todo))
-            ResponseBuilder.Tell("Il y a eu un problème pour récupérer une tâche à faire. Tu pourras retenter un peu plus tard.");
+            return ResponseBuilder.Tell("Il y a eu un problème pour récupérer une tâche à faire. Tu pourras retenter un peu plus tard.");
+
+        CurrentSession.LastTask = todo.name;
 
         var prompt = $"Tu peux {todo!.name} pour {todo.points} centimes. Acceptes-tu ou souhaites-tu une autre tâche ?";
         var response = ResponseBuilder.Ask(prompt, new Reprompt() { OutputSpeech = new Reprompt(prompt).OutputSpeech });
@@ -103,11 +149,19 @@ public class Function
 
     private async Task<SkillResponse> GetBalance(ILambdaContext context, IntentRequest intentRequest)
     {
+        context.Logger.LogInformation($"Requesting balance for {CurrentSession.FirstName}");
+
         var balanceResult = await TaskSelector.GetMemberBalance(new Member(CurrentSession.FirstName));
         if (!balanceResult.TryGetValue(out var balance))
-            ResponseBuilder.Tell("Il y a eu un problème pour récupérer ton solde d'argent de poche. Tu pourras retenter un peu plus tard.");
+            return ResponseBuilder.Tell("Il y a eu un problème pour récupérer ton solde d'argent de poche. Tu pourras retenter un peu plus tard.");
 
-        var prompt = AmountHelper.GetAmountToPromptText(balance!.amount);
+        context.Logger.LogInformation($"Balance found: {System.Text.Json.JsonSerializer.Serialize(balance)}");
+
+        var amount = AmountHelper.GetAmountToPromptText(balance!.amount);
+        var waiting = AmountHelper.GetWaitingAmountToPromptText(balance!.pendingAmount);
+        
+        var prompt = $"{amount}, et {waiting}. Si tu veux, tu peux me demander une autre tâche.";
+
         var response = ResponseBuilder.Ask(prompt, new Reprompt() { OutputSpeech = new Reprompt(prompt).OutputSpeech });
         return response;
     }
@@ -118,7 +172,7 @@ public class Function
 
         CurrentSession.FirstName = firstName;
 
-        var prompt = $"Bonjour {firstName}. Veux-tu une tâche à faire ou connaître ton solde d'argent de poche ?";
+        var prompt = $"Bonjour {CurrentSession.FirstName}. Veux-tu une tâche à faire ou connaître ton solde d'argent de poche ?";
         var response = ResponseBuilder.Ask(prompt, new Reprompt() { OutputSpeech = new Reprompt(prompt).OutputSpeech });
         return response;
     }

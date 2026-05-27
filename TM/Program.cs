@@ -13,9 +13,8 @@ var configuration = builder.Configuration;
 
 var repo = new CleaningTasksRepository(configuration);
 var taskSelector = new TaskSelector(repo);
-var nextToDo = await taskSelector.GetTaskFor(new Member("Lucie"));
+//var nextToDo = await taskSelector.GetTaskFor(new Member("Lucie"));
+//Console.WriteLine(nextToDo.Value.name);
 
 var balance = await taskSelector.GetMemberBalance(new Member("Lucie"));
-
-Console.WriteLine(nextToDo.Value.name);
 Console.WriteLine($"Balance: {balance.Value.amount} cents, Pending: {balance.Value.pendingAmount} cents");

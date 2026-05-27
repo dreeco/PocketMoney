@@ -61,6 +61,17 @@ public class CleaningTasksRepository : ICleaningTasksRepository
         }
         return tasks;
     }
+    public async Task<Result<CleaningTask>> GetTask(string taskName)
+    {
+        var queryParameters = GetParameters([new TitleFilter("Nom", equal: taskName)]);
+
+        var response = await Client.Databases.QueryAsync(CleaningTasksDataset, queryParameters);
+
+        return response.Results
+            .Select(r => GetCleaningTaskFromPage(r as Page))
+            .Select(r => r.Value)
+            .Single();
+    }
 
     public async Task<Result> SelectTask(string taskId, Member member, Balance balance, double amount)
     {

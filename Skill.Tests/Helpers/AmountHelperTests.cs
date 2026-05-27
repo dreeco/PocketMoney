@@ -24,4 +24,18 @@ public class AmountHelperTests
         var text = AmountHelper.GetAmountToPromptText(amountInCents);
         Assert.Equal(expectedText, text);
     }
+    [Theory]
+    [InlineData(0, "Tu n'as pas de tâches en attente de validation")]
+    [InlineData(-1, "Tu n'as pas de tâches en attente de validation")]
+    [InlineData(2, "Tu as 2 centimes en attente de validation")]
+    [InlineData(102, "Tu as 1 euro et 2 centimes en attente de validation")]
+    [InlineData(202, "Tu as 2 euros et 2 centimes en attente de validation")]
+    [InlineData(101, "Tu as 1 euro et 1 centime en attente de validation")]
+    [InlineData(201, "Tu as 2 euros et 1 centime en attente de validation")]
+    public void WaitingAmountTextShouldMatchExpected(int amountInCents, string expectedText)
+    {
+        var text = AmountHelper.GetWaitingAmountToPromptText(amountInCents);
+        Assert.Equal(expectedText, text);
+    }
+
 }
