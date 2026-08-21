@@ -109,7 +109,7 @@ public class Function
         if (!taskResult.TryGetValue(out var task))
             return ResponseBuilder.Tell($"Il y a eu un problème pour récupérer la tâche {CurrentSession.LastTask}. Tu pourras retenter un peu plus tard.");
 
-        return ResponseBuilder.Tell($"Okay, c'est noté ! Voici comment t'y prendre : " + task!.description);
+        return ResponseBuilder.Tell($"Okay, c'est noté ! Voici comment t'y prendre : " + task.description);
     }
 
     private async Task<SkillResponse> Decline(ILambdaContext context, IntentRequest intentRequest)
@@ -170,7 +170,14 @@ public class Function
     {
         string firstName = GetFirstNameFromSlot(intentRequest);
 
-        CurrentSession.FirstName = firstName;
+        CurrentSession.FirstName = firstName switch
+        {
+            
+            string s when s.StartsWith("A", StringComparison.OrdinalIgnoreCase) => "Alix",
+            string s when s.StartsWith("L", StringComparison.OrdinalIgnoreCase) => "Lucie",
+            string s when s.StartsWith("E", StringComparison.OrdinalIgnoreCase) => "Elio",
+            _ => firstName,
+        };
 
         var prompt = $"Bonjour {CurrentSession.FirstName}. Veux-tu une tâche à faire ou connaître ton solde d'argent de poche ?";
         var response = ResponseBuilder.Ask(prompt, new Reprompt() { OutputSpeech = new Reprompt(prompt).OutputSpeech });
@@ -184,7 +191,7 @@ public class Function
 
     private SkillResponse WelcomeUser(ILambdaContext context)
     {
-        var prompt = "Bonjour, à qui ais-je l'honneur ? Lucie, Alix ou Elio ?";
+        var prompt = "Bonjour, à qui ais-je l'honneur ?";
         var response = ResponseBuilder.Ask(prompt, new Reprompt() { OutputSpeech = new Reprompt(prompt).OutputSpeech });
         ExpectFirstName(response, context.Logger);
         return response;
