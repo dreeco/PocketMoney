@@ -4,5 +4,7 @@
   <Project Path="Infrastructure/Infrastructure.csproj" />
   <Project Path="Skill.Tests/Skill.Tests.csproj" />
   <Project Path="Skill/Skill.csproj" />
+  <Project Path="TelegramBot.Tests/TelegramBot.Tests.csproj" />
+  <Project Path="TelegramBot/TelegramBot.csproj" />
   <Project Path="TM/Console.csproj" />
 </Solution>
