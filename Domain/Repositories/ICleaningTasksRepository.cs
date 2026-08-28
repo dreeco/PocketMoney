@@ -1,5 +1,5 @@
 ﻿using CSharpFunctionalExtensions;
-using Domain.Entities;
+using Domain.PocketMoneyEntities;
 
 namespace Domain.Repositories;
 

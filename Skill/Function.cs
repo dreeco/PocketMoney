@@ -5,7 +5,7 @@ using Alexa.NET.Response;
 using Alexa.NET.Response.Directive;
 using Amazon.Lambda.Core;
 using Application;
-using Domain.Entities;
+using Domain.PocketMoneyEntities;
 using Domain.Repositories;
 using Infrastructure.DataAccess;
 using Microsoft.Extensions.DependencyInjection;

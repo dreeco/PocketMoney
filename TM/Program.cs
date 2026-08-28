@@ -1,7 +1,7 @@
 ﻿
 
 using Application;
-using Domain.Entities;
+using Domain.PocketMoneyEntities;
 using Infrastructure.DataAccess;
 using Microsoft.Extensions.Hosting;
 

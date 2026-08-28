@@ -1,5 +1,10 @@
 using Amazon.Lambda.APIGatewayEvents;
 using Amazon.Lambda.Core;
+using Domain.BudgetEntities;
+using Domain.Repositories;
+using Infrastructure.AI;
+using Infrastructure.DataAccess;
+using Microsoft.Extensions.DependencyInjection;
 using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -35,6 +40,7 @@ public class TelegramFunction
         if (string.IsNullOrWhiteSpace(request.Body))
             return new APIGatewayHttpApiV2ProxyResponse { StatusCode = (int)HttpStatusCode.BadRequest, Body = "Empty body" };
 
+
         TelegramUpdate? update;
         try
         {
@@ -60,36 +66,88 @@ public class TelegramFunction
         // 2. Traitement métier via tes services injectés
         context.Logger.LogInformation($"Processing message: '{message.Text}' from {message.From.Id}");
 
-        // Ex: var expenseService = _serviceProvider.GetRequiredService<IExpenseService>();
-        // await expenseService.ProcessAsync(message.Text);
+        // Vos catégories prédéfinies pour Notion
+        string[] availableCategories =
+        [
+            "Alimentation",
+            "Animaux",
+            "Assurances",
+            "Cadeaux",
+            "Dons",
+            "Frais bancaires",
+            "Frais maison",
+            "Habits",
+            "Impôts",
+            "Internet",
+            "Santé",
+            "Sorties",
+            "Travail",
+            "Vacances",
+            "Voiture"
+        ];
 
-        var amount = 42;
-        var category = "Alimentation";
-        var recurringDebit = "Courses";
 
+        var parser = _serviceProvider.GetRequiredService<GeminiExpenseParser>();
+        var parsedExpense = await parser.ParseExpenseAsync(message.Text, availableCategories);
 
+        if (!parsedExpense.IsSuccess)
+        {
+            var failPayload = new
+            {
+                method = "sendMessage",
+                chat_id = message.From.Id,
+                text = "⚠️ Je n'ai pas pu identifier le montant ou la dépense. Exemple : *'Courses carrefour 35€'*",
+                parse_mode = "Markdown"
+            };
+            return SendJsonResponse(failPayload);
+        }
+
+        var text = "";
+        var pages = new List<object>();
+        var debitsRepo = _serviceProvider.GetRequiredService<IBudgetRepository>();
+        foreach (var expense in parsedExpense.Value)
+        {
+
+            context.Logger.LogInformation(
+            "Creating Notion expense: Amount={Amount}, Description={Description}, Category={Category}, RecurringDebitId={RecurringDebitId}, RecurringDebitName={RecurringDebitName}",
+            expense.Amount,
+            expense.Description,
+            expense.Category,
+            expense.RecurringDebitId,
+            expense.RecurringDebitName
+        );
+
+            var result = await debitsRepo.CreateExpense(expense);
+            if (!result.IsSuccess)
+                continue;
+
+            text += $@"
+💵 Dépense ""{expense.Description}"" enregistrée !
+• **Montant :** {expense.Amount:C}
+• **Catégorie :** {expense.Category}
+• **Dépense récurrente: ** {expense.RecurringDebitName}";
+            pages.Add(new
+            {
+                text = "🔗 Voir la dépense",
+                url = result.Value.url
+            });
+        }
         var replyPayload = new
         {
             method = "sendMessage",
             chat_id = message.From.Id,
-            text = $"✅ Dépense enregistrée !\n• **Montant :** {amount:C}\n• **Catégorie :** {category}\n• **Dépense récurrente :** {recurringDebit}",
+            text = text,
             parse_mode = "Markdown",
             reply_markup = new
             {
-                inline_keyboard = new[]
-                {
-                    new[]
-                    {
-                        new
-                        {
-                            text = "🔗 Voir la dépense",
-                            url = "https://app.notion.com/p/3b7bbbc3b4e980e7ac35dac965ca00d2?v=3b7bbbc3b4e980118a28000c2f2d0f3f&p=3bebbbc3b4e980e0b805db7c8e535880&pm=s"
-                        }
-                    }
-                }
+                inline_keyboard = new[] { pages }
             }
         };
+        return SendJsonResponse(replyPayload);
+    }
 
+    private static APIGatewayHttpApiV2ProxyResponse SendJsonResponse(object replyPayload)
+    {
         return new APIGatewayHttpApiV2ProxyResponse
         {
             StatusCode = 200,

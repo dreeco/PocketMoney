@@ -1,5 +1,5 @@
 ﻿using CSharpFunctionalExtensions;
-using Domain.Entities;
+using Domain.PocketMoneyEntities;
 using Domain.Repositories;
 using System.Security.Cryptography;
 
