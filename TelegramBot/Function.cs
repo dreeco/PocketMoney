@@ -1,14 +1,16 @@
 using Amazon.Lambda.APIGatewayEvents;
 using Amazon.Lambda.Core;
-using Domain.BudgetEntities;
+using CSharpFunctionalExtensions;
 using Domain.Repositories;
 using Infrastructure.AI;
-using Infrastructure.DataAccess;
 using Microsoft.Extensions.DependencyInjection;
 using System.Net;
 using System.Text.Json;
-using System.Text.Json.Serialization;
-using static Amazon.Lambda.APIGatewayEvents.APIGatewayHttpApiV2ProxyRequest.AuthorizerDescription;
+using Telegram.Bot;
+using Telegram.Bot.Types;
+using Telegram.Bot.Types.Enums;
+using Telegram.Bot.Types.ReplyMarkups;
+using TelegramBot.Models;
 
 [assembly: LambdaSerializer(typeof(Amazon.Lambda.Serialization.SystemTextJson.DefaultLambdaJsonSerializer))]
 
@@ -105,6 +107,8 @@ public class TelegramFunction
         var text = "";
         var pages = new List<object>();
         var debitsRepo = _serviceProvider.GetRequiredService<IBudgetRepository>();
+
+        var budgetNotifier = _serviceProvider.GetRequiredService<IBudgetNotifier>();
         foreach (var expense in parsedExpense.Value)
         {
 
@@ -131,6 +135,10 @@ public class TelegramFunction
                 text = "🔗 Voir la dépense",
                 url = result.Value.url
             });
+
+            var messageResult = await budgetNotifier.SendMessage(message.From.Id, text, new Button("🔗 Voir la dépense", result.Value.url));
+            if (!messageResult.IsSuccess)
+                context.Logger.LogWarning(messageResult.Error);
         }
         var replyPayload = new
         {
@@ -143,6 +151,7 @@ public class TelegramFunction
                 inline_keyboard = new[] { pages }
             }
         };
+
         return SendJsonResponse(replyPayload);
     }
 
@@ -155,29 +164,4 @@ public class TelegramFunction
             Body = JsonSerializer.Serialize(replyPayload)
         };
     }
-}
-
-// Modèles C# légers pour désérialiser le message Telegram
-public class TelegramUpdate
-{
-    [JsonPropertyName("message")]
-    public TelegramMessage? Message { get; set; }
-}
-
-public class TelegramMessage
-{
-    [JsonPropertyName("text")]
-    public string? Text { get; set; }
-
-    [JsonPropertyName("from")]
-    public TelegramUser From { get; set; } = new();
-}
-
-public class TelegramUser
-{
-    [JsonPropertyName("id")]
-    public long Id { get; set; }
-
-    [JsonPropertyName("username")]
-    public string? Username { get; set; }
 }

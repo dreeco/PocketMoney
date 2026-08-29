@@ -22,35 +22,35 @@ public class BudgetRepository : IBudgetRepository
         DebitsDataset = configuration.GetRequiredSection("debitsDataset").Value ?? throw new ArgumentNullException(nameof(DebitsDataset));
     }
 
-    public async Task<Result<BillingMonth>> GetCurrentBillingMonth()
-    {
-        var today = DateTime.Today;
+    //public async Task<Result<BillingMonth>> GetCurrentBillingMonth()
+    //{
+    //    var today = DateTime.Today;
 
-        DateTime startDate;
-        DateTime endDate;
+    //    DateTime startDate;
+    //    DateTime endDate;
 
-        if (today.Day > 20)
-        {
-            startDate = new DateTime(today.Year, today.Month, 21);
-            var nextMonth = today.AddMonths(1);
-            endDate = new DateTime(nextMonth.Year, nextMonth.Month, 20);
-        }
-        else
-        {
-            var previousMonth = today.AddMonths(-1);
-            startDate = new DateTime(previousMonth.Year, previousMonth.Month, 21);
-            endDate = new DateTime(today.Year, today.Month, 20);
-        }
+    //    if (today.Day > 20)
+    //    {
+    //        startDate = new DateTime(today.Year, today.Month, 21);
+    //        var nextMonth = today.AddMonths(1);
+    //        endDate = new DateTime(nextMonth.Year, nextMonth.Month, 20);
+    //    }
+    //    else
+    //    {
+    //        var previousMonth = today.AddMonths(-1);
+    //        startDate = new DateTime(previousMonth.Year, previousMonth.Month, 21);
+    //        endDate = new DateTime(today.Year, today.Month, 20);
+    //    }
 
-        var queryParameters = NotionHelper.GetParameters([new DateFilter("Date", before: endDate, after: startDate)]);
+    //    var queryParameters = NotionHelper.GetParameters([new DateFilter("Date", before: endDate, after: startDate)]);
 
-        var response = await Client.Databases.QueryAsync(DebitsDataset, queryParameters);
+    //    var response = await Client.Databases.QueryAsync(DebitsDataset, queryParameters);
 
-        return response.Results
-            .Select(r => GetBillingMonthFromPage(r as Page))
-            .Select(r => r.Value)
-            .Single();
-    }
+    //    return response.Results
+    //        .Select(r => GetBillingMonthFromPage(r as Page))
+    //        .Select(r => r.Value)
+    //        .Single();
+    //}
 
     private Result<BillingMonth> GetBillingMonthFromPage(Page? page)
     {
@@ -70,9 +70,9 @@ public class BudgetRepository : IBudgetRepository
 
     public async Task<Result<ExpensePage>> CreateExpense(Expense expense)
     {
-        var billingMonthResult = await GetCurrentBillingMonth();
-        if (!billingMonthResult.IsSuccess)
-            return Result.Failure<ExpensePage>(billingMonthResult.Error);
+        //var billingMonthResult = await GetCurrentBillingMonth();
+        //if (!billingMonthResult.IsSuccess)
+        //    return Result.Failure<ExpensePage>(billingMonthResult.Error);
 
         var properties = new Dictionary<string, PropertyValue>
         {
@@ -82,7 +82,7 @@ public class BudgetRepository : IBudgetRepository
             },
             ["Mois"] = new RelationPropertyValue
             {
-                Relation = [new ObjectId { Id = billingMonthResult.Value.Id }]
+                Relation = [new ObjectId { Id = "3b9bbbc3b4e9806fafd0edbd8d9a0bd6" }]
             },
             ["Date"] = new DatePropertyValue
             {

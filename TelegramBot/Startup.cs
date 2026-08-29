@@ -3,6 +3,7 @@ using Infrastructure.AI;
 using Infrastructure.DataAccess;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Telegram.Bot;
 
 namespace TelegramBot;
 
@@ -29,6 +30,16 @@ public class Startup
 
         // 3. Enregistrer tes repositories et services métier existants
         services.AddTransient<IBudgetRepository, BudgetRepository>();
+
+
+        var botToken = Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN")
+                       ?? throw new InvalidOperationException("TELEGRAM_BOT_TOKEN missing.");
+
+        // Enregistrement du Bot Client
+        var bot = new TelegramBotClient(botToken);
+        services.AddSingleton<ITelegramBotClient>(bot);
+        services.AddSingleton<IBudgetNotifier>(new BudgetNotifier(bot));
+
         // services.AddTransient<IGeminiCategorizerService, GeminiCategorizerService>();
         // services.AddTransient<IExpenseService, ExpenseService>();
 

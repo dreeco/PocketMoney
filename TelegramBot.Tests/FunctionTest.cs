@@ -1,20 +1,35 @@
+using Microsoft.Extensions.Configuration;
+using Telegram.Bot;
 using Xunit;
-using Amazon.Lambda.Core;
-using Amazon.Lambda.TestUtilities;
 
 namespace TelegramBot.Tests;
 
 public class FunctionTest
 {
+    public FunctionTest()
+    {
+        var config = new ConfigurationBuilder()
+            .SetBasePath(AppContext.BaseDirectory)
+            .AddJsonFile("appsettings.json", optional: true)
+            .AddJsonFile("appsettings.local.json", optional: true)
+            .AddEnvironmentVariables()
+            .Build();
+
+        foreach (var pair in config.AsEnumerable())
+        {
+            if (!string.IsNullOrEmpty(pair.Value))
+            {
+                Environment.SetEnvironmentVariable(pair.Key, pair.Value);
+            }
+        }
+    }
+
     [Fact]
-    public void TestToUpperFunction()
+    public async Task TestSendMessage()
     {
 
-        //// Invoke the lambda function and confirm the string was upper cased.
-        //var function = new TelegramFunction();
-        //var context = new TestLambdaContext();
-        //var upperCase = function.FunctionHandler("hello world", context);
+        var notifier = new BudgetNotifier(new TelegramBotClient(Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN")));
 
-        //Assert.Equal("HELLO WORLD", upperCase);
+        await notifier.SendMessage(8662514156, "toto", new Button("ici", "https://google.fr"));
     }
 }
