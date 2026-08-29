@@ -57,3 +57,4 @@ TestResult.xml
 nunit-*.xml
 /.vs
 /TM/Properties/launchSettings.json
+/TelegramBot.Tests/appsettings.local.json
