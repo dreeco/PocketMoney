@@ -39,6 +39,7 @@ public class Startup
         var bot = new TelegramBotClient(botToken);
         services.AddSingleton<ITelegramBotClient>(bot);
         services.AddSingleton<IBudgetNotifier>(new BudgetNotifier(bot));
+        services.AddSingleton(TimeProvider.System);
 
         // services.AddTransient<IGeminiCategorizerService, GeminiCategorizerService>();
         // services.AddTransient<IExpenseService, ExpenseService>();

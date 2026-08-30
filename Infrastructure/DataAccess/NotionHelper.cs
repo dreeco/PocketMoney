@@ -63,6 +63,18 @@ namespace Infrastructure.DataAccess
                     if (select is null)
                         return Result.Failure<string>("Property value is null.");
                     return select;
+                case FormulaPropertyValue formulaPropertyValue:
+                    var formula = formulaPropertyValue?.Formula;
+                    if (formula == null) return string.Empty;
+
+                    return formula.Type switch
+                    {
+                        "string" => formula.String ?? Result.Failure<string>("Property string is null."),
+                        "number" => formula.Number?.ToString() ?? Result.Failure<string>("Property number is null."),
+                        "boolean" => formula.Boolean?.ToString() ?? Result.Failure<string>("Property boolean is null."),
+                        "date" => formula.Date?.Start?.ToString("yyyy-MM-dd") ?? Result.Failure<string>("Property date is null."),
+                        _ => Result.Failure<string>("Property formula map to no known type.")
+                    };
                 default:
                     return Result.Failure<string>("Property value is not mapped to string.");
             }

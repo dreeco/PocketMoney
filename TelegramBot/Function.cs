@@ -106,7 +106,7 @@ public class TelegramFunction
 
         var text = "";
         var pages = new List<object>();
-        var debitsRepo = _serviceProvider.GetRequiredService<IBudgetRepository>();
+        var budgetRepository = _serviceProvider.GetRequiredService<IBudgetRepository>();
 
         var budgetNotifier = _serviceProvider.GetRequiredService<IBudgetNotifier>();
         foreach (var expense in parsedExpense.Value)
@@ -121,20 +121,29 @@ public class TelegramFunction
             expense.RecurringDebitName
         );
 
-            var result = await debitsRepo.CreateExpense(expense);
+            var result = await budgetRepository.CreateExpense(expense);
             if (!result.IsSuccess)
+                throw new Exception("Impossible to create expense: " + result.Error);
+
+            var budgetLeftResult = await budgetRepository.GetBudgetInformation(expense.RecurringDebitId);
+            if (!budgetLeftResult.IsSuccess)
                 continue;
 
             text += $@"
 💵 Dépense ""{expense.Description}"" enregistrée !
 • **Montant :** {expense.Amount:C}
 • **Catégorie :** {expense.Category}
-• **Dépense récurrente: ** {expense.RecurringDebitName}";
+• **Dépense récurrente: ** {expense.RecurringDebitName}
+
+{budgetLeftResult.Value.CurrentMonthInfo}
+";
             pages.Add(new
             {
                 text = "🔗 Voir la dépense",
                 url = result.Value.url
             });
+
+
 
             var messageResult = await budgetNotifier.SendMessage(message.From.Id, text, new Button("🔗 Voir la dépense", result.Value.url));
             if (!messageResult.IsSuccess)

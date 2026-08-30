@@ -1,6 +1,5 @@
 ﻿using CSharpFunctionalExtensions;
 using Domain.BudgetEntities;
-using Domain.PocketMoneyEntities;
 using Domain.Repositories;
 using Microsoft.Extensions.Configuration;
 using Notion.Client;
@@ -11,8 +10,11 @@ public class BudgetRepository : IBudgetRepository
 {
     private NotionClient Client { get; set; }
     private string DebitsDataset { get; set; }
+    private string RecurringDebitsDataset { get; set; }
+    private string BillingMonthsDataset { get; set; }
+    public TimeProvider TimeProvider { get; }
 
-    public BudgetRepository(IConfiguration configuration)
+    public BudgetRepository(IConfiguration configuration, TimeProvider timeProvider)
     {
         Client = NotionClientFactory.Create(new ClientOptions
         {
@@ -20,59 +22,51 @@ public class BudgetRepository : IBudgetRepository
         });
 
         DebitsDataset = configuration.GetRequiredSection("debitsDataset").Value ?? throw new ArgumentNullException(nameof(DebitsDataset));
+        RecurringDebitsDataset = configuration.GetRequiredSection("recurringDebitsDataset").Value ?? throw new ArgumentNullException(nameof(DebitsDataset));
+        BillingMonthsDataset = configuration.GetRequiredSection("billingMonthsDataset").Value ?? throw new ArgumentNullException(nameof(BillingMonthsDataset));
+        TimeProvider = timeProvider;
     }
 
-    //public async Task<Result<BillingMonth>> GetCurrentBillingMonth()
-    //{
-    //    var today = DateTime.Today;
+    public async Task<Result<BillingMonth>> GetCurrentBillingMonth()
+    {
+        var today = TimeProvider.GetUtcNow().Date;
 
-    //    DateTime startDate;
-    //    DateTime endDate;
+        var startDate = new DateTime(today.Year, today.Month, 1);
+        if (today.Day >= 20)
+            startDate = startDate.AddMonths(1);
+        var endDate = startDate.AddMonths(1).AddDays(-1);
 
-    //    if (today.Day > 20)
-    //    {
-    //        startDate = new DateTime(today.Year, today.Month, 21);
-    //        var nextMonth = today.AddMonths(1);
-    //        endDate = new DateTime(nextMonth.Year, nextMonth.Month, 20);
-    //    }
-    //    else
-    //    {
-    //        var previousMonth = today.AddMonths(-1);
-    //        startDate = new DateTime(previousMonth.Year, previousMonth.Month, 21);
-    //        endDate = new DateTime(today.Year, today.Month, 20);
-    //    }
+        var queryParameters = NotionHelper.GetParameters([new DateFilter("Date", onOrAfter: startDate), new DateFilter("Date", onOrBefore: endDate)]);
 
-    //    var queryParameters = NotionHelper.GetParameters([new DateFilter("Date", before: endDate, after: startDate)]);
+        var response = await Client.Databases.QueryAsync(BillingMonthsDataset, queryParameters);
 
-    //    var response = await Client.Databases.QueryAsync(DebitsDataset, queryParameters);
-
-    //    return response.Results
-    //        .Select(r => GetBillingMonthFromPage(r as Page))
-    //        .Select(r => r.Value)
-    //        .Single();
-    //}
+        return response.Results
+            .Select(r => GetBillingMonthFromPage(r as Page))
+            .Select(r => r.Value)
+            .Single();
+    }
 
     private Result<BillingMonth> GetBillingMonthFromPage(Page? page)
     {
         if (page == null)
             return Result.Failure<BillingMonth>("No billing month found.");
 
-        //var name = NotionHelper.GetString(page.Properties["Name"]);
+        var name = NotionHelper.GetString(page.Properties["Name"]);
 
-        //if (!name.IsSuccess )
-        //    return Result.Failure<BillingMonth>($"Errors: {(name.IsSuccess ? "" : name.Error)}");
+        if (!name.IsSuccess)
+            return Result.Failure<BillingMonth>($"Errors: {(name.IsSuccess ? "" : name.Error)}");
 
         return new BillingMonth(
             page.Id,
-            "",
+            name.Value,
             new AccountSituation());
     }
 
     public async Task<Result<ExpensePage>> CreateExpense(Expense expense)
     {
-        //var billingMonthResult = await GetCurrentBillingMonth();
-        //if (!billingMonthResult.IsSuccess)
-        //    return Result.Failure<ExpensePage>(billingMonthResult.Error);
+        var billingMonthResult = await GetCurrentBillingMonth();
+        if (!billingMonthResult.IsSuccess)
+            return Result.Failure<ExpensePage>(billingMonthResult.Error);
 
         var properties = new Dictionary<string, PropertyValue>
         {
@@ -82,7 +76,7 @@ public class BudgetRepository : IBudgetRepository
             },
             ["Mois"] = new RelationPropertyValue
             {
-                Relation = [new ObjectId { Id = "3b9bbbc3b4e9806fafd0edbd8d9a0bd6" }]
+                Relation = [new ObjectId { Id = billingMonthResult.Value.Id }]
             },
             ["Date"] = new DatePropertyValue
             {
@@ -116,6 +110,19 @@ public class BudgetRepository : IBudgetRepository
         if (page == null)
             return Result.Failure<ExpensePage>("Could not create Notion page");
         return Result.Success(new ExpensePage(page.Id, page.Url));
+    }
+
+    public async Task<Result<BudgetInformation>> GetBudgetInformation(string recurringDebitId) 
+    {
+        var page = await Client.Pages.RetrieveAsync(recurringDebitId);
+
+        var name = NotionHelper.GetString(page.Properties["Name"]);
+        var currentMonthInfo = NotionHelper.GetString(page.Properties["Budget mois courant"]);
+
+        if (!name.IsSuccess || !currentMonthInfo.IsSuccess)
+            return Result.Failure<BudgetInformation>("Impossible de récupérer le budget");
+
+        return new BudgetInformation(page.Id, name.Value, currentMonthInfo.Value);
     }
 
 }
