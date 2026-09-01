@@ -2,10 +2,6 @@ using Amazon.Lambda.APIGatewayEvents;
 using Amazon.Lambda.Core;
 using Application.Budget;
 using CSharpFunctionalExtensions;
-using Domain.BudgetEntities;
-using Domain.Repositories;
-using Domain.Services;
-using Infrastructure.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using System.Net;
@@ -89,15 +85,13 @@ public class TelegramFunction
         // 2. Traitement métier via tes services injectés
         externalLogger.LogInformation($"Processing message: '{message.Text}' from {message.From.Id}");
 
-        var parser = _serviceProvider.GetRequiredService<GenAiBudgetService>();
-
-        var budgetRepository = _serviceProvider.GetRequiredService<IBudgetRepository>();
-        var budgetNotifier = _serviceProvider.GetRequiredService<IBudgetNotifier>();
-
-        var userRequestHandler = new UserRequestHandler(budgetRepository, parser, budgetNotifier);
+        var userRequestHandler = _serviceProvider.GetRequiredService<IUserRequestHandler>();
         var result = await userRequestHandler.ParseMessage(externalLogger, message.Text, message.From.Id, cancellationToken);
         if (result.IsFailure)
+        {
+            context.Logger.LogError("Failed on " + result.Error);
             throw new Exception(result.Error);
+        }
 
         return NoContent();
     }

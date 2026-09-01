@@ -45,7 +45,7 @@ public class UserRequestHandler : IUserRequestHandler
 
         var budgetLeftResult = await _repository.GetBudgetInformation(expense.RecurringDebitId, cancellationToken);
         if (!budgetLeftResult.IsSuccess)
-            throw new Exception("Impossible to fetch budget");
+            return Result.Failure<UserRequestResponse>("Impossible to fetch budget");
 
         // Override transfer when false and recurring debit associated is made by transfer
         expense.IsTransfer = expense.IsTransfer == false ? budgetLeftResult.Value.IsTransfer : expense.IsTransfer;
@@ -131,40 +131,26 @@ public class UserRequestHandler : IUserRequestHandler
 
     public async Task<Result> ParseMessage(ILogger logger, string userMessage, long userId, CancellationToken cancellationToken)
     {
-        var action = "SaisieDépense";
         var actionResult = await _genAiBudgetService.ParseRouteFromMessage(userMessage, cancellationToken);
-        if (actionResult.IsSuccess)
-            action = actionResult.Value.Action;
+        if (actionResult.IsFailure)
+            return Result.Failure(actionResult.Error);
 
-        switch (action)
+        switch (actionResult.Value.Action)
         {
             case "SaisieDépense":
                 var userRequestResponse = await HandleNewExpense(logger, userMessage, cancellationToken);
                 if (userRequestResponse.IsFailure)
                     return Result.Failure(userRequestResponse.Error);
 
-                var messageResult = await _budgetNotifier.NotifyAllBudgetUsersFromNewMessage(userRequestResponse.Value, cancellationToken);
-                if (messageResult.IsFailure)
-                {
-                    logger.LogWarning(messageResult.Error);
-                    await _budgetNotifier.SendMessageToUniqueUser(userId, new UserRequestResponse("⚠️ La dépense a été ajoutée mais la notification n'a pas pu être envoyée"), cancellationToken);
-                }
-
-                return Result.Success();
+                return await NotifyAll(logger, userId, userRequestResponse, cancellationToken);
+            
             case "SaisieRevenu":
                 var userRequestResponseIncome = await HandleNewIncome(logger, userMessage, cancellationToken);
                 if (userRequestResponseIncome.IsFailure)
                     return Result.Failure(userRequestResponseIncome.Error);
-
-                var messageResultIncome = await _budgetNotifier.NotifyAllBudgetUsersFromNewMessage(userRequestResponseIncome.Value, cancellationToken);
-
-                if (messageResultIncome.IsFailure)
-                {
-                    logger.LogWarning(messageResultIncome.Error);
-                    await _budgetNotifier.SendMessageToUniqueUser(userId, new UserRequestResponse("⚠️ Le revenu a été ajouté mais la notification n'a pas pu être envoyée"), cancellationToken);
-                }
-
-                return Result.Success();
+                
+                return await NotifyAll(logger, userId, userRequestResponseIncome, cancellationToken);
+            
             case "RésuméSituation":
                 var responseSummary = await HandleSituationSummary(userMessage, cancellationToken);
                 if (responseSummary.IsFailure)
@@ -175,10 +161,23 @@ public class UserRequestHandler : IUserRequestHandler
                     logger.LogError(result.Error);
 
                 return Result.Success();
+
             default:
                 await _budgetNotifier.SendMessageToUniqueUser(userId, new UserRequestResponse($"⚠️ Je n'ai pas compris la demande."), cancellationToken);
                 return Result.Success();
         }
+    }
 
+    private async Task<Result> NotifyAll(ILogger logger, long userId, Result<UserRequestResponse> userRequestResponseIncome, CancellationToken cancellationToken)
+    {
+        var messageResultIncome = await _budgetNotifier.NotifyAllBudgetUsersFromNewMessage(userRequestResponseIncome.Value, cancellationToken);
+
+        if (messageResultIncome.IsFailure)
+        {
+            logger.LogWarning(messageResultIncome.Error);
+            await _budgetNotifier.SendMessageToUniqueUser(userId, new UserRequestResponse("⚠️ La transaction a été enregistrée sur Notion mais la notification n'a pas pu être envoyée"), cancellationToken);
+        }
+
+        return Result.Success();
     }
 }

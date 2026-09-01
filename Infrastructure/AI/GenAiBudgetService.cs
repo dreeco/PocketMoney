@@ -163,7 +163,7 @@ public class GenAiBudgetService : IGenAiBudgetService
 
     public async Task<Result<Expense>> ParseIncomeAsync(string rawUserInput, string recurringCredits, CancellationToken cancellationToken)
     {
-        string[] availableCategories = ["Remboursement", "Aides", "Salaire"];
+        string[] availableCategories = ["Remboursement", "Aides", "Salaire", "Vente"];
 
         var categoriesList = string.Join(", ", availableCategories);
 

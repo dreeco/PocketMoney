@@ -34,8 +34,8 @@ public class Startup
         RegisterGeminiParser(services);
 
         services.AddTransient<IBudgetRepository, BudgetRepository>();
+
         services.AddTransient<IUserRequestHandler, UserRequestHandler>();
-        services.AddTransient<IBudgetNotifier, BudgetNotifier>();
 
         return services.BuildServiceProvider();
     }
@@ -45,16 +45,17 @@ public class Startup
         var geminiApiKey = Environment.GetEnvironmentVariable("GEMINI_API_KEY")
                                ?? throw new InvalidOperationException("GEMINI_API_KEY missing.");
 
-        services.AddSingleton(new GenAiBudgetService(geminiApiKey));
+        services.AddSingleton<IGenAiBudgetService>(new GenAiBudgetService(geminiApiKey));
     }
 
-    private static TelegramBotClient RegisterTelegramBot(ServiceCollection services)
+    private static void RegisterTelegramBot(ServiceCollection services)
     {
         var botToken = Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN")
                                ?? throw new InvalidOperationException("TELEGRAM_BOT_TOKEN missing.");
         var bot = new TelegramBotClient(botToken);
         services.AddSingleton<ITelegramBotClient>(bot);
-        return bot;
+
+        services.AddTransient<IBudgetNotifier, BudgetNotifier>();
     }
 
     private static void RegisterConfiguration(ServiceCollection services)
