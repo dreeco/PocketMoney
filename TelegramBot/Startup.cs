@@ -26,7 +26,6 @@ public class Startup
 
         // 1. Enregistrer la configuration pour pouvoir l'injecter si besoin
         services.AddSingleton(Configuration);
-        services.AddHttpClient<GeminiExpenseParser>();
 
         // 3. Enregistrer tes repositories et services métier existants
         services.AddTransient<IBudgetRepository, BudgetRepository>();
@@ -41,8 +40,10 @@ public class Startup
         services.AddSingleton<IBudgetNotifier>(new BudgetNotifier(bot));
         services.AddSingleton(TimeProvider.System);
 
-        // services.AddTransient<IGeminiCategorizerService, GeminiCategorizerService>();
-        // services.AddTransient<IExpenseService, ExpenseService>();
+        var geminiApiKey = Environment.GetEnvironmentVariable("GEMINI_API_KEY")
+                       ?? throw new InvalidOperationException("GEMINI_API_KEY missing.");
+
+        services.AddSingleton(new GenAiBudgetService(geminiApiKey));
 
         return services.BuildServiceProvider();
     }

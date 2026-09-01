@@ -109,11 +109,11 @@ public class FunctionTest
     [InlineData("Budgets mois", "RésuméSituation")]
     public async Task TestRouteAction(string message, string expectedAction)
     {
-        var geminiParser = new GeminiExpenseParser(new HttpClient());
-        var routeActionResult = await geminiParser.ParseRouteFromMessage(message);
+        var geminiParser2 = new GenAiBudgetService(Environment.GetEnvironmentVariable("GEMINI_API_KEY"));
+        var routeActionResult2 = await geminiParser2.ParseRouteFromMessage(message);
 
-        Assert.True(routeActionResult.IsSuccess);
-        Assert.Equal(expectedAction, routeActionResult.Value.Action);
+        Assert.True(routeActionResult2.IsSuccess, routeActionResult2.IsFailure ? routeActionResult2.Error : string.Empty);
+        Assert.Equal(expectedAction, routeActionResult2.Value.Action);
 
     }
 
@@ -125,14 +125,14 @@ public class FunctionTest
     [InlineData("Retrait 100€ maréchal", 100d, true, "3babbbc3b4e98050bd2af89429bc2e35")]
     public async Task TestParseExpense(string message, double expectedAmount, bool expectedIsTransfer, string expectedRecurringDebitId)
     {
-        var geminiParser = new GeminiExpenseParser(new HttpClient());
+        var geminiParser = new GenAiBudgetService(Environment.GetEnvironmentVariable("GEMINI_API_KEY"));
 
         var budgetRepository = new BudgetRepository(Configuration, TimeProvider.System);
         var recurringDebits = await budgetRepository.FetchAllRecurringDebits();
 
         var expenseResult = await geminiParser.ParseExpenseAsync(message, recurringDebits.Value);
 
-        Assert.True(expenseResult.IsSuccess);
+        Assert.True(expenseResult.IsSuccess, expenseResult.IsFailure ? expenseResult.Error : string.Empty);
         Assert.Equal(expectedAmount, expenseResult.Value.Amount);
         Assert.True(expenseResult.Value.IsValidExpense);
         Assert.Equal(expectedIsTransfer, expenseResult.Value.IsTransfer);
@@ -147,14 +147,14 @@ public class FunctionTest
     [InlineData("CAF 421€", 421d, true, "3b9bbbc3b4e980e08ba6ce81fc647979")]
     public async Task TestParseIncome(string message, double expectedAmount, bool expectedIsTransfer, string expectedRecurringDebitId)
     {
-        var geminiParser = new GeminiExpenseParser(new HttpClient());
+        var geminiParser = new GenAiBudgetService(Environment.GetEnvironmentVariable("GEMINI_API_KEY"));
 
         var budgetRepository = new BudgetRepository(Configuration, TimeProvider.System);
         var recurringDebits = await budgetRepository.FetchAllRecurringCredits();
 
         var expenseResult = await geminiParser.ParseIncomeAsync(message, recurringDebits.Value);
 
-        Assert.True(expenseResult.IsSuccess);
+        Assert.True(expenseResult.IsSuccess, expenseResult.IsFailure ? expenseResult.Error : string.Empty);
         Assert.Equal(expectedAmount, expenseResult.Value.Amount);
         Assert.True(expenseResult.Value.IsValidExpense);
         Assert.Equal(expectedIsTransfer, expenseResult.Value.IsTransfer);

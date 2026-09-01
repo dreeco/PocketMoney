@@ -7,7 +7,6 @@ using Telegram.Bot.Types.ReplyMarkups;
 
 namespace TelegramBot;
 
-public record Button(string Text, string Url);
 
 public interface IBudgetNotifier
 {
