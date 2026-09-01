@@ -48,12 +48,13 @@ public class NotionDatasetExporter
     /// <summary>
     /// Exporte une base de données Notion au format CSV
     /// </summary>
-    public async Task<string> ExportToCsvAsync(string databaseId)
+    public async Task<string> ExportToCsvAsync(string databaseId, IEnumerable<string>? filterColumns = null, IEnumerable<string>? filterRowsName = null)
     {
-        var pages = await FetchAllPagesAsync(databaseId);
+        var pages = (await FetchAllPagesAsync(databaseId))
+            .Where(p => filterRowsName == null || filterRowsName.Contains(ExtractPropertyValue(p.Properties["Name"])));
         if (!pages.Any()) return string.Empty;
 
-        var headers = pages.First().Properties.Keys.ToList();
+        var headers = pages.First().Properties.Keys.ToList().Where(p => filterColumns == null || filterColumns.Contains(p));
         var sb = new StringBuilder();
 
         // En-têtes

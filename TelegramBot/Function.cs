@@ -6,10 +6,6 @@ using Infrastructure.AI;
 using Microsoft.Extensions.DependencyInjection;
 using System.Net;
 using System.Text.Json;
-using Telegram.Bot;
-using Telegram.Bot.Types;
-using Telegram.Bot.Types.Enums;
-using Telegram.Bot.Types.ReplyMarkups;
 using TelegramBot.Models;
 
 [assembly: LambdaSerializer(typeof(Amazon.Lambda.Serialization.SystemTextJson.DefaultLambdaJsonSerializer))]
@@ -42,7 +38,6 @@ public class TelegramFunction
         if (string.IsNullOrWhiteSpace(request.Body))
             return new APIGatewayHttpApiV2ProxyResponse { StatusCode = (int)HttpStatusCode.BadRequest, Body = "Empty body" };
 
-
         TelegramUpdate? update;
         try
         {
@@ -68,100 +63,126 @@ public class TelegramFunction
         // 2. Traitement métier via tes services injectés
         context.Logger.LogInformation($"Processing message: '{message.Text}' from {message.From.Id}");
 
-        // Vos catégories prédéfinies pour Notion
-        string[] availableCategories =
-        [
-            "Alimentation",
-            "Animaux",
-            "Assurances",
-            "Cadeaux",
-            "Dons",
-            "Frais bancaires",
-            "Frais maison",
-            "Habits",
-            "Impôts",
-            "Internet",
-            "Santé",
-            "Sorties",
-            "Travail",
-            "Vacances",
-            "Voiture"
-        ];
-
-
         var parser = _serviceProvider.GetRequiredService<GeminiExpenseParser>();
-        var parsedExpense = await parser.ParseExpenseAsync(message.Text, availableCategories);
-
-        if (!parsedExpense.IsSuccess)
-        {
-            var failPayload = new
-            {
-                method = "sendMessage",
-                chat_id = message.From.Id,
-                text = "⚠️ Je n'ai pas pu identifier le montant ou la dépense. Exemple : *'Courses carrefour 35€'*",
-                parse_mode = "Markdown"
-            };
-            return SendJsonResponse(failPayload);
-        }
-
-        var text = "";
-        var pages = new List<object>();
         var budgetRepository = _serviceProvider.GetRequiredService<IBudgetRepository>();
-
         var budgetNotifier = _serviceProvider.GetRequiredService<IBudgetNotifier>();
-        foreach (var expense in parsedExpense.Value)
+
+        var action = "SaisieDépense";
+        var actionResult = await parser.ParseRouteFromMessage(message.Text);
+        if (actionResult.IsSuccess)
+            action = actionResult.Value.Action;
+
+        switch (action)
         {
+            case "SaisieDépense":
+                var recurringDebits = await budgetRepository.FetchAllRecurringDebits();
+                if (recurringDebits.IsFailure)
+                    throw new Exception(recurringDebits.Error);
 
-            context.Logger.LogInformation(
-            "Creating Notion expense: Amount={Amount}, Description={Description}, Category={Category}, RecurringDebitId={RecurringDebitId}, RecurringDebitName={RecurringDebitName}",
-            expense.Amount,
-            expense.Description,
-            expense.Category,
-            expense.RecurringDebitId,
-            expense.RecurringDebitName
-        );
+                var parsedExpense = await parser.ParseExpenseAsync(message.Text, recurringDebits.Value);
 
-            var result = await budgetRepository.CreateExpense(expense);
-            if (!result.IsSuccess)
-                throw new Exception("Impossible to create expense: " + result.Error);
+                if (!parsedExpense.IsSuccess)
+                {
+                    var failPayload = new
+                    {
+                        method = "sendMessage",
+                        chat_id = message.From.Id,
+                        text = "⚠️ Je n'ai pas pu identifier le montant ou la dépense. Exemple : *'Courses carrefour 35€'*",
+                        parse_mode = "Markdown"
+                    };
+                    return SendJsonResponse(failPayload);
+                }
 
-            var budgetLeftResult = await budgetRepository.GetBudgetInformation(expense.RecurringDebitId);
-            if (!budgetLeftResult.IsSuccess)
-                continue;
+                var expense = parsedExpense.Value;
 
-            text += $@"
-💵 Dépense ""{expense.Description}"" enregistrée !
-• **Montant :** {expense.Amount:C}
-• **Catégorie :** {expense.Category}
-• **Dépense récurrente: ** {expense.RecurringDebitName}
+                context.Logger.LogInformation(
+                "Creating Notion expense: Amount={Amount}, Description={Description}, Category={Category}, RecurringDebitId={RecurringDebitId}, RecurringDebitName={RecurringDebitName}, IsTransfer={IsTransfer}",
+                expense.Amount,
+                expense.Description,
+                expense.Category,
+                expense.RecurringDebitId,
+                expense.RecurringDebitName,
+                expense.IsTransfer
+            );
 
-{budgetLeftResult.Value.CurrentMonthInfo}
-";
-            pages.Add(new
-            {
-                text = "🔗 Voir la dépense",
-                url = result.Value.url
-            });
+                var budgetLeftResult = await budgetRepository.GetBudgetInformation(expense.RecurringDebitId);
+                if (!budgetLeftResult.IsSuccess)
+                    throw new Exception("Impossible to fetch budget");
 
+                // Override transfer when false and recurring debit associated is made by transfer
+                expense.IsTransfer = expense.IsTransfer == false ? budgetLeftResult.Value.IsTransfer : expense.IsTransfer;
 
+                var result = await budgetRepository.CreateExpense(expense);
+                if (!result.IsSuccess)
+                    throw new Exception("Impossible to create expense: " + result.Error);
 
-            var messageResult = await budgetNotifier.SendMessage(message.From.Id, text, new Button("🔗 Voir la dépense", result.Value.url));
-            if (!messageResult.IsSuccess)
-                context.Logger.LogWarning(messageResult.Error);
+                expense.PageUrl = result.Value.url;
+
+                var messageResult = await budgetNotifier.NotifyBudgetUsersFromNewExpense(message.From.Id, expense, budgetLeftResult.Value);
+                if (!messageResult.Result.IsSuccess)
+                    context.Logger.LogWarning(messageResult.Result.Error);
+
+                return SendJsonResponse(messageResult.Reply);
+            case "SaisieRevenu":
+                var recurringCredits = await budgetRepository.FetchAllRecurringCredits();
+                if (recurringCredits.IsFailure)
+                    throw new Exception(recurringCredits.Error);
+
+                var parsedIncome = await parser.ParseIncomeAsync(message.Text, recurringCredits.Value);
+
+                if (!parsedIncome.IsSuccess)
+                {
+                    var failPayload = new
+                    {
+                        method = "sendMessage",
+                        chat_id = message.From.Id,
+                        text = "⚠️ Je n'ai pas pu identifier le montant ou le revenu. Exemple : *'CAF 437€'*",
+                        parse_mode = "Markdown"
+                    };
+                    return SendJsonResponse(failPayload);
+                }
+
+                var income = parsedIncome.Value;
+                var incomeResult = await budgetRepository.CreateIncome(income);
+                if (incomeResult.IsFailure)
+                    throw new Exception(incomeResult.Error);
+
+                income.PageUrl = incomeResult.Value.url;
+
+                var messageIncomeResult = await budgetNotifier.NotifyBudgetUsersFromNewIncome(message.From.Id, income);
+                if (!messageIncomeResult.Result.IsSuccess)
+                    context.Logger.LogWarning(messageIncomeResult.Result.Error);
+
+                return SendJsonResponse(messageIncomeResult.Reply);
+
+            case "RésuméSituation":
+                var recurringDebits2 = await budgetRepository.FetchAllRecurringDebits();
+                if (recurringDebits2.IsFailure)
+                    throw new Exception(recurringDebits2.Error);
+
+                var billingMonths2 = await budgetRepository.FetchAllBillingMonths();
+                if (billingMonths2.IsFailure)
+                    throw new Exception(billingMonths2.Error);
+
+                var situation = await parser.EvaluateSituation(message.Text, recurringDebits2.Value, billingMonths2.Value);
+                if (situation.IsFailure)
+                    throw new Exception(situation.Error);
+
+                var message2 = await budgetNotifier.BuildSituationSummaryAnswer(message.From.Id, situation.Value);
+                return SendJsonResponse(message2);
+            default:
+                break;
         }
-        var replyPayload = new
+
+        return SendJsonResponse(new
         {
             method = "sendMessage",
             chat_id = message.From.Id,
-            text = text,
-            parse_mode = "Markdown",
-            reply_markup = new
-            {
-                inline_keyboard = new[] { pages }
-            }
-        };
+            text = $"⚠️ Je n'ai pas compris la demande.",
+            parse_mode = "Markdown"
+        });
 
-        return SendJsonResponse(replyPayload);
+
     }
 
     private static APIGatewayHttpApiV2ProxyResponse SendJsonResponse(object replyPayload)

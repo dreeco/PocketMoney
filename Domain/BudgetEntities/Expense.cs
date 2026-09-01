@@ -21,4 +21,10 @@ public class Expense
 
     [JsonPropertyName("is_valid_expense")]
     public bool IsValidExpense { get; set; }
+    
+    [JsonPropertyName("is_transfer")]
+    public bool IsTransfer { get; set; }
+
+    [JsonPropertyName("page")]
+    public string PageUrl { get; set; }
 }

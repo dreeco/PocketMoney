@@ -1,49 +1,139 @@
 ﻿using CSharpFunctionalExtensions;
-using Microsoft.Extensions.DependencyInjection;
-using System;
-using System.Collections.Generic;
-using System.Text;
+using Domain.BudgetEntities;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
 using Telegram.Bot.Types.ReplyMarkups;
 
-namespace TelegramBot
+namespace TelegramBot;
+
+public record Button(string Text, string Url);
+
+public interface IBudgetNotifier
 {
-    public record Button(string Text, string Url);
-    
-    public interface IBudgetNotifier {
-        Task<Result> SendMessage(long from, string text, Button button);
+    Task<(Result Result, object Reply)> NotifyBudgetUsersFromNewExpense(long from, Expense expense, BudgetInformation budgetLeftResult);
+    Task<(Result Result, object Reply)> NotifyBudgetUsersFromNewIncome(long from, Expense expense);
+    Task<object> BuildSituationSummaryAnswer(long from, Situation situation);
+}
+
+public class BudgetNotifier : IBudgetNotifier
+{
+    private ITelegramBotClient Bot { get; }
+    private readonly List<long> _allowedUserIds;
+
+    public BudgetNotifier(ITelegramBotClient boClient)
+    {
+        Bot = boClient;
+
+        var envIds = Environment.GetEnvironmentVariable("ALLOWED_USER_IDS") ?? "8818144478,8662514156";
+        _allowedUserIds = envIds.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                                .Select(long.Parse)
+                                .ToList();
     }
 
-    public class BudgetNotifier: IBudgetNotifier
+    public async Task<(Result Result, object Reply)> NotifyBudgetUsersFromNewExpense(long from, Expense expense, BudgetInformation budgetLeftResult)
     {
-        private ITelegramBotClient Bot { get; }
-        private readonly List<long> _allowedUserIds;
+        var otherUser = _allowedUserIds.FirstOrDefault(i => i != from);
 
-        public BudgetNotifier(ITelegramBotClient boClient)
+        var mean = expense.IsTransfer ? "virement" : "CB";
+
+        var text = $@"
+💵 Dépense ""{expense.Description}"" par {mean} enregistrée !
+• **Montant :** {expense.Amount:C}
+• **Catégorie :** {expense.Category}
+• **Dépense récurrente: ** {expense.RecurringDebitName}
+
+{budgetLeftResult.CurrentMonthInfo}
+";
+
+        var button = new Button("🔗 Voir la dépense", expense.PageUrl);
+
+        var message = await Bot.SendMessage(
+            new ChatId(otherUser),
+            parseMode: ParseMode.Markdown,
+            replyMarkup: new InlineKeyboardMarkup(new InlineKeyboardButton(button.Text, button.Url)),
+            text: text
+        );
+
+        var reply = new
         {
-            Bot = boClient;
+            method = "sendMessage",
+            chat_id = from,
+            text = text,
+            parse_mode = "Markdown",
+            reply_markup = new
+            {
+                inline_keyboard = new[] { new
+                {
+                    text = button.Text,
+                    url = button.Url
+                } }
+            }
+        };
 
-            var envIds = Environment.GetEnvironmentVariable("ALLOWED_USER_IDS") ?? "8818144478,8662514156";
-            _allowedUserIds = envIds.Split(',', StringSplitOptions.RemoveEmptyEntries)
-                                    .Select(long.Parse)
-                                    .ToList();
-        }
+        if (message == null)
+            return (Result.Failure("Impossible to send message to second recipient"), reply);
 
-        public async Task<Result> SendMessage(long from, string text, Button button)
+        return (Result.Success(), reply);
+    }
+
+
+    public async Task<(Result Result, object Reply)> NotifyBudgetUsersFromNewIncome(long from, Expense expense)
+    {
+        var otherUser = _allowedUserIds.FirstOrDefault(i => i != from);
+
+        var mean = expense.IsTransfer ? "virement" : "CB";
+
+        var text = $@"
+🤑 Revenu ""{expense.Description}"" par {mean} enregistré !
+• **Montant :** {expense.Amount:C}
+• **Catégorie :** {expense.Category}
+• **Revenu récurrent: ** {expense.RecurringDebitName}
+";
+
+        var button = new Button("🔗 Voir le revenu", expense.PageUrl);
+
+        var message = await Bot.SendMessage(
+            new ChatId(otherUser),
+            parseMode: ParseMode.Markdown,
+            replyMarkup: new InlineKeyboardMarkup(new InlineKeyboardButton(button.Text, button.Url)),
+            text: text
+        );
+
+        var reply = new
         {
-            var message = await Bot.SendMessage(
-                new ChatId(_allowedUserIds.Where(i => i != from).FirstOrDefault()),
-                parseMode: ParseMode.Markdown,
-                replyMarkup: new InlineKeyboardMarkup(new InlineKeyboardButton(button.Text, button.Url)),
-                text: text
-            );
+            method = "sendMessage",
+            chat_id = from,
+            text = text,
+            parse_mode = "Markdown",
+            reply_markup = new
+            {
+                inline_keyboard = new[] { new
+                {
 
-            if (message == null)
-                return Result.Failure("Impossible to send message to second recipient");
+                    text = button.Text,
+                    url = button.Url
+                } }
+            }
+        };
 
-            return Result.Success();
-        }
+        if (message == null)
+            return (Result.Failure("Impossible to send message to second recipient"), reply);
+
+        return (Result.Success(), reply);
+    }
+
+
+    public async Task<object> BuildSituationSummaryAnswer(long from, Situation situation)
+    {
+        var reply = new
+        {
+            method = "sendMessage",
+            chat_id = from,
+            text = situation.Summary,
+            parse_mode = "Markdown",
+        };
+
+        return reply;
     }
 }
