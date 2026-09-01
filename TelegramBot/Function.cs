@@ -90,52 +90,16 @@ public class TelegramFunction
         externalLogger.LogInformation($"Processing message: '{message.Text}' from {message.From.Id}");
 
         var parser = _serviceProvider.GetRequiredService<GenAiBudgetService>();
+
         var budgetRepository = _serviceProvider.GetRequiredService<IBudgetRepository>();
         var budgetNotifier = _serviceProvider.GetRequiredService<IBudgetNotifier>();
 
-        var action = "SaisieDépense";
-        var actionResult = await parser.ParseRouteFromMessage(message.Text, cancellationToken);
-        if (actionResult.IsSuccess)
-            action = actionResult.Value.Action;
+        var userRequestHandler = new UserRequestHandler(budgetRepository, parser, budgetNotifier);
+        var result = await userRequestHandler.ParseMessage(externalLogger, message.Text, message.From.Id, cancellationToken);
+        if (result.IsFailure)
+            throw new Exception(result.Error);
 
-        var userRequestHandler = new UserRequestHandler(budgetRepository, parser);
-
-        switch (action)
-        {
-            case "SaisieDépense":
-                var userRequestResponse = await userRequestHandler.HandleNewExpense(externalLogger, message.Text, cancellationToken);
-                if (userRequestResponse.IsFailure)
-                    throw new Exception(userRequestResponse.Error);
-
-                var messageResult = await budgetNotifier.NotifyAllBudgetUsersFromNewMessage(userRequestResponse.Value, cancellationToken);
-                if (messageResult.IsFailure)
-                    externalLogger.LogWarning(messageResult.Error);
-
-                return NoContent();
-            case "SaisieRevenu":
-                var userRequestResponseIncome = await userRequestHandler.HandleNewIncome(externalLogger, message.Text, cancellationToken);
-                if (userRequestResponseIncome.IsFailure)
-                    throw new Exception(userRequestResponseIncome.Error);
-
-                var messageResultIncome = await budgetNotifier.NotifyAllBudgetUsersFromNewMessage(userRequestResponseIncome.Value, cancellationToken);
-                if (messageResultIncome.IsFailure)
-                    externalLogger.LogWarning(messageResultIncome.Error);
-
-                return NoContent();
-            case "RésuméSituation":
-                var responseSummary = await userRequestHandler.HandleSituationSummary(message.Text, cancellationToken);
-                if (responseSummary.IsFailure)
-                    throw new Exception(responseSummary.Error);
-
-                var result = await budgetNotifier.SendMessageToUniqueUser(message.From.Id, responseSummary.Value, cancellationToken);
-                if (result.IsFailure)
-                    externalLogger.LogError(result.Error);
-
-                return NoContent();
-            default:
-                await budgetNotifier.SendMessageToUniqueUser(message.From.Id, new UserRequestResponse($"⚠️ Je n'ai pas compris la demande."), cancellationToken);
-                return NoContent();
-        }
+        return NoContent();
     }
 
     private static APIGatewayHttpApiV2ProxyResponse NoContent()

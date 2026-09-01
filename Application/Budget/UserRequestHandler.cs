@@ -10,17 +10,20 @@ public interface IUserRequestHandler
 {
     Task<Result<UserRequestResponse>> HandleNewExpense(ILogger logger, string userMessage, CancellationToken cancellationToken);
     Task<Result<UserRequestResponse>> HandleNewIncome(ILogger logger, string userMessage, CancellationToken cancellationToken);
+    Task<Result> ParseMessage(ILogger logger, string userMessage, long userId, CancellationToken cancellationToken);
 }
 
 public class UserRequestHandler : IUserRequestHandler
 {
     private readonly IBudgetRepository _repository;
     private readonly IGenAiBudgetService _genAiBudgetService;
+    private readonly IBudgetNotifier _budgetNotifier;
 
-    public UserRequestHandler(IBudgetRepository repository, IGenAiBudgetService genAiBudgetService)
+    public UserRequestHandler(IBudgetRepository repository, IGenAiBudgetService genAiBudgetService, IBudgetNotifier budgetNotifier)
     {
         _repository = repository;
         _genAiBudgetService = genAiBudgetService;
+        _budgetNotifier = budgetNotifier;
     }
 
     public async Task<Result<UserRequestResponse>> HandleNewExpense(ILogger logger, string userMessage, CancellationToken cancellationToken)
@@ -124,5 +127,58 @@ public class UserRequestHandler : IUserRequestHandler
             return Result.Failure<UserRequestResponse>(situation.Error);
 
         return new UserRequestResponse(situation.Value.Summary);
+    }
+
+    public async Task<Result> ParseMessage(ILogger logger, string userMessage, long userId, CancellationToken cancellationToken)
+    {
+        var action = "SaisieDépense";
+        var actionResult = await _genAiBudgetService.ParseRouteFromMessage(userMessage, cancellationToken);
+        if (actionResult.IsSuccess)
+            action = actionResult.Value.Action;
+
+        switch (action)
+        {
+            case "SaisieDépense":
+                var userRequestResponse = await HandleNewExpense(logger, userMessage, cancellationToken);
+                if (userRequestResponse.IsFailure)
+                    return Result.Failure(userRequestResponse.Error);
+
+                var messageResult = await _budgetNotifier.NotifyAllBudgetUsersFromNewMessage(userRequestResponse.Value, cancellationToken);
+                if (messageResult.IsFailure)
+                {
+                    logger.LogWarning(messageResult.Error);
+                    await _budgetNotifier.SendMessageToUniqueUser(userId, new UserRequestResponse("⚠️ La dépense a été ajoutée mais la notification n'a pas pu être envoyée"), cancellationToken);
+                }
+
+                return Result.Success();
+            case "SaisieRevenu":
+                var userRequestResponseIncome = await HandleNewIncome(logger, userMessage, cancellationToken);
+                if (userRequestResponseIncome.IsFailure)
+                    return Result.Failure(userRequestResponseIncome.Error);
+
+                var messageResultIncome = await _budgetNotifier.NotifyAllBudgetUsersFromNewMessage(userRequestResponseIncome.Value, cancellationToken);
+
+                if (messageResultIncome.IsFailure)
+                {
+                    logger.LogWarning(messageResultIncome.Error);
+                    await _budgetNotifier.SendMessageToUniqueUser(userId, new UserRequestResponse("⚠️ Le revenu a été ajouté mais la notification n'a pas pu être envoyée"), cancellationToken);
+                }
+
+                return Result.Success();
+            case "RésuméSituation":
+                var responseSummary = await HandleSituationSummary(userMessage, cancellationToken);
+                if (responseSummary.IsFailure)
+                    return Result.Failure(responseSummary.Error);
+
+                var result = await _budgetNotifier.SendMessageToUniqueUser(userId, responseSummary.Value, cancellationToken);
+                if (result.IsFailure)
+                    logger.LogError(result.Error);
+
+                return Result.Success();
+            default:
+                await _budgetNotifier.SendMessageToUniqueUser(userId, new UserRequestResponse($"⚠️ Je n'ai pas compris la demande."), cancellationToken);
+                return Result.Success();
+        }
+
     }
 }
