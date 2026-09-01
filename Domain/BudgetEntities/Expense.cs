@@ -26,5 +26,5 @@ public class Expense
     public bool IsTransfer { get; set; }
 
     [JsonPropertyName("page")]
-    public string PageUrl { get; set; }
+    public string PageUrl { get; set; } = string.Empty;
 }

@@ -16,9 +16,9 @@ public class NotionDatasetExporter
     /// <summary>
     /// Exporte une base de données Notion au format Markdown
     /// </summary>
-    public async Task<string> ExportToMarkdownAsync(string databaseId)
+    public async Task<string> ExportToMarkdownAsync(string databaseId, CancellationToken cancellationToken)
     {
-        var pages = await FetchAllPagesAsync(databaseId);
+        var pages = await FetchAllPagesAsync(databaseId, cancellationToken);
         if (!pages.Any()) return string.Empty;
 
         var headers = pages.First().Properties.Keys.ToList();
@@ -48,9 +48,9 @@ public class NotionDatasetExporter
     /// <summary>
     /// Exporte une base de données Notion au format CSV
     /// </summary>
-    public async Task<string> ExportToCsvAsync(string databaseId, IEnumerable<string>? filterColumns = null, IEnumerable<string>? filterRowsName = null)
+    public async Task<string> ExportToCsvAsync(string databaseId, CancellationToken cancellationToken, IEnumerable<string>? filterColumns = null, IEnumerable<string>? filterRowsName = null)
     {
-        var pages = (await FetchAllPagesAsync(databaseId))
+        var pages = (await FetchAllPagesAsync(databaseId, cancellationToken))
             .Where(p => filterRowsName == null || filterRowsName.Contains(ExtractPropertyValue(p.Properties["Name"])));
         if (!pages.Any()) return string.Empty;
 
@@ -73,7 +73,7 @@ public class NotionDatasetExporter
     /// <summary>
     /// Récupère toutes les pages en gérant la pagination de l'API Notion (max 100 par appel)
     /// </summary>
-    private async Task<List<Page>> FetchAllPagesAsync(string databaseId)
+    private async Task<List<Page>> FetchAllPagesAsync(string databaseId, CancellationToken cancellationToken)
     {
         var allPages = new List<Page>();
         string? nextCursor = null;
@@ -82,9 +82,9 @@ public class NotionDatasetExporter
         while (hasMore)
         {
             var queryParams = new DatabasesQueryParameters { StartCursor = nextCursor };
-            var response = await _client.Databases.QueryAsync(databaseId, queryParams);
+            var response = await _client.Databases.QueryAsync(databaseId, queryParams, cancellationToken);
 
-            var newElements = response.Results.Select(p => p as Page);
+            var newElements = response.Results.Select(p => (p as Page)!);
             allPages.AddRange(newElements);
 
             hasMore = response.HasMore;
@@ -171,9 +171,9 @@ public class NotionDatasetExporter
     /// <summary>
     /// Exporte une base de données Notion au format YAML
     /// </summary>
-    public async Task<string> ExportToYamlAsync(string databaseId)
+    public async Task<string> ExportToYamlAsync(string databaseId, CancellationToken cancellationToken)
     {
-        var pages = await FetchAllPagesAsync(databaseId);
+        var pages = await FetchAllPagesAsync(databaseId, cancellationToken);
         if (!pages.Any()) return string.Empty;
 
         var headers = pages.First().Properties.Keys.ToList();
@@ -216,9 +216,9 @@ public class NotionDatasetExporter
     /// <summary>
     /// Exporte une base de données Notion au format JSON classique (Array of Objects)
     /// </summary>
-    public async Task<string> ExportToJsonAsync(string databaseId)
+    public async Task<string> ExportToJsonAsync(string databaseId, CancellationToken cancellationToken)
     {
-        var pages = await FetchAllPagesAsync(databaseId);
+        var pages = await FetchAllPagesAsync(databaseId, cancellationToken);
         if (!pages.Any()) return "[]";
 
         var headers = pages.First().Properties.Keys.ToList();

@@ -18,7 +18,7 @@ public class GenAiBudgetService : IGenAiBudgetService
         _client = new Client(apiKey: apiKey);
     }
 
-    public async Task<Result<Situation>> EvaluateSituation(string rawUserInput, string recurringDebits, string billingMonths)
+    public async Task<Result<Situation>> EvaluateSituation(string rawUserInput, string recurringDebits, string billingMonths, CancellationToken cancellationToken)
     {
         var systemPrompt = $$"""
             Tu es un assistant comptable personnel expert fonctionnant comme un analyseur d'application budgétaire. Ton rôle est d'analyser une saisie en langage naturel et d'en extraire une réponse claire, succinte (car lue par message) et etayée ave les données de l'application budgétaire. 
@@ -69,10 +69,10 @@ public class GenAiBudgetService : IGenAiBudgetService
             }
         };
 
-        return await RunPrompt<Situation>(rawUserInput, config);
+        return await RunPrompt<Situation>(rawUserInput, config, cancellationToken);
     }
 
-    public async Task<Result<Expense>> ParseExpenseAsync(string rawUserInput, string recurringDebits)
+    public async Task<Result<Expense>> ParseExpenseAsync(string rawUserInput, string recurringDebits, CancellationToken cancellationToken)
     {
         string[] availableCategories = ["Alimentation", "Animaux", "Assurances", "Cadeaux", "Dons", "Frais bancaires", "Frais maison",
             "Habits", "Impôts", "Internet", "Santé", "Sorties", "Travail", "Vacances", "Voiture"];
@@ -131,7 +131,7 @@ public class GenAiBudgetService : IGenAiBudgetService
         
         var config = GetExpenseConfig(categoriesList, systemPrompt, "la dépense");
 
-        return await RunPrompt<Expense>(rawUserInput, config);
+        return await RunPrompt<Expense>(rawUserInput, config, cancellationToken);
     }
 
     private static GenerateContentConfig GetExpenseConfig(string categoriesList, string systemPrompt, string type)
@@ -161,7 +161,7 @@ public class GenAiBudgetService : IGenAiBudgetService
         };
     }
 
-    public async Task<Result<Expense>> ParseIncomeAsync(string rawUserInput, string recurringCredits)
+    public async Task<Result<Expense>> ParseIncomeAsync(string rawUserInput, string recurringCredits, CancellationToken cancellationToken)
     {
         string[] availableCategories = ["Remboursement", "Aides", "Salaire"];
 
@@ -198,10 +198,10 @@ public class GenAiBudgetService : IGenAiBudgetService
 
         var config = GetExpenseConfig(categoriesList, systemPrompt, "le révenu");
 
-        return await RunPrompt<Expense>(rawUserInput, config);
+        return await RunPrompt<Expense>(rawUserInput, config, cancellationToken);
     }
 
-    public async Task<Result<RouteAction>> ParseRouteFromMessage(string rawUserInput)
+    public async Task<Result<RouteAction>> ParseRouteFromMessage(string rawUserInput, CancellationToken cancellationToken)
     {
         var systemPrompt = """
             Tu es chargé de pré-trier un message pour savoir ce que mon application de budget doit effectuer comme opération.
@@ -236,17 +236,18 @@ public class GenAiBudgetService : IGenAiBudgetService
             }
         };
 
-        return await RunPrompt<RouteAction>(rawUserInput, config);
+        return await RunPrompt<RouteAction>(rawUserInput, config, cancellationToken);
     }
 
-    private async Task<Result<T>> RunPrompt<T>(string rawUserInput, GenerateContentConfig config)
+    private async Task<Result<T>> RunPrompt<T>(string rawUserInput, GenerateContentConfig config, CancellationToken cancellationToken)
     {
         try
         {
             var response = await _client.Models.GenerateContentAsync(
                 model: DefaultLLM,
                 contents: rawUserInput,
-                config: config
+                config: config,
+                cancellationToken: cancellationToken
             );
 
             var jsonText = response.Text;

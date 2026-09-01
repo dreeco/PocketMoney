@@ -1,4 +1,6 @@
-﻿using Domain.Repositories;
+﻿using Application.Budget;
+using Domain.Repositories;
+using Domain.Services;
 using Infrastructure.AI;
 using Infrastructure.DataAccess;
 using Microsoft.Extensions.Configuration;
@@ -18,34 +20,41 @@ public class Startup
 
         Configuration = builder.Build();
     }
+
     public IServiceProvider ConfigureServices()
     {
         var services = new ServiceCollection();
 
         RegisterConfiguration(services);
 
-        // 1. Enregistrer la configuration pour pouvoir l'injecter si besoin
         services.AddSingleton(Configuration);
-
-        // 3. Enregistrer tes repositories et services métier existants
-        services.AddTransient<IBudgetRepository, BudgetRepository>();
-
-
-        var botToken = Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN")
-                       ?? throw new InvalidOperationException("TELEGRAM_BOT_TOKEN missing.");
-
-        // Enregistrement du Bot Client
-        var bot = new TelegramBotClient(botToken);
-        services.AddSingleton<ITelegramBotClient>(bot);
-        services.AddSingleton<IBudgetNotifier>(new BudgetNotifier(bot));
         services.AddSingleton(TimeProvider.System);
 
-        var geminiApiKey = Environment.GetEnvironmentVariable("GEMINI_API_KEY")
-                       ?? throw new InvalidOperationException("GEMINI_API_KEY missing.");
+        RegisterTelegramBot(services);
+        RegisterGeminiParser(services);
 
-        services.AddSingleton(new GenAiBudgetService(geminiApiKey));
+        services.AddTransient<IBudgetRepository, BudgetRepository>();
+        services.AddTransient<IUserRequestHandler, UserRequestHandler>();
+        services.AddTransient<IBudgetNotifier, BudgetNotifier>();
 
         return services.BuildServiceProvider();
+    }
+
+    private static void RegisterGeminiParser(ServiceCollection services)
+    {
+        var geminiApiKey = Environment.GetEnvironmentVariable("GEMINI_API_KEY")
+                               ?? throw new InvalidOperationException("GEMINI_API_KEY missing.");
+
+        services.AddSingleton(new GenAiBudgetService(geminiApiKey));
+    }
+
+    private static TelegramBotClient RegisterTelegramBot(ServiceCollection services)
+    {
+        var botToken = Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN")
+                               ?? throw new InvalidOperationException("TELEGRAM_BOT_TOKEN missing.");
+        var bot = new TelegramBotClient(botToken);
+        services.AddSingleton<ITelegramBotClient>(bot);
+        return bot;
     }
 
     private static void RegisterConfiguration(ServiceCollection services)
@@ -56,6 +65,4 @@ public class Startup
 
         services.AddSingleton<IConfiguration>(configuration);
     }
-
-
 }

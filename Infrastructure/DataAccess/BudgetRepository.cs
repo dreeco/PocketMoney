@@ -35,7 +35,7 @@ public class BudgetRepository : IBudgetRepository
         NotionDatasetExporter = new NotionDatasetExporter(Client);
     }
 
-    public async Task<Result<BillingMonth>> GetCurrentBillingMonth()
+    public async Task<Result<BillingMonth>> GetCurrentBillingMonth(CancellationToken cancellationToken)
     {
         var today = TimeProvider.GetUtcNow().Date;
 
@@ -46,7 +46,7 @@ public class BudgetRepository : IBudgetRepository
 
         var queryParameters = NotionHelper.GetParameters([new DateFilter("Date", onOrAfter: startDate), new DateFilter("Date", onOrBefore: endDate)]);
 
-        var response = await Client.Databases.QueryAsync(BillingMonthsDataset, queryParameters);
+        var response = await Client.Databases.QueryAsync(BillingMonthsDataset, queryParameters, cancellationToken);
 
         return response.Results
             .Select(r => GetBillingMonthFromPage(r as Page))
@@ -70,9 +70,9 @@ public class BudgetRepository : IBudgetRepository
             new AccountSituation());
     }
 
-    public async Task<Result<ExpensePage>> CreateExpense(Expense expense)
+    public async Task<Result<ExpensePage>> CreateExpense(Expense expense, CancellationToken cancellationToken)
     {
-        var billingMonthResult = await GetCurrentBillingMonth();
+        var billingMonthResult = await GetCurrentBillingMonth(cancellationToken);
         if (!billingMonthResult.IsSuccess)
             return Result.Failure<ExpensePage>(billingMonthResult.Error);
 
@@ -118,16 +118,16 @@ public class BudgetRepository : IBudgetRepository
             Properties = properties
         };
 
-        var page = await Client.Pages.CreateAsync(createPageParameters);
+        var page = await Client.Pages.CreateAsync(createPageParameters, cancellationToken);
         if (page == null)
             return Result.Failure<ExpensePage>("Could not create Notion page");
         return Result.Success(new ExpensePage(page.Id, page.Url));
     }
 
 
-    public async Task<Result<ExpensePage>> CreateIncome(Expense expense)
+    public async Task<Result<ExpensePage>> CreateIncome(Expense expense, CancellationToken cancellationToken)
     {
-        var billingMonthResult = await GetCurrentBillingMonth();
+        var billingMonthResult = await GetCurrentBillingMonth(cancellationToken);
         if (!billingMonthResult.IsSuccess)
             return Result.Failure<ExpensePage>(billingMonthResult.Error);
 
@@ -174,42 +174,43 @@ public class BudgetRepository : IBudgetRepository
             Properties = properties
         };
 
-        var page = await Client.Pages.CreateAsync(createPageParameters);
+        var page = await Client.Pages.CreateAsync(createPageParameters, cancellationToken);
         if (page == null)
             return Result.Failure<ExpensePage>("Could not create Notion page");
+
         return Result.Success(new ExpensePage(page.Id, page.Url));
     }
 
-    public async Task<Result<string>> FetchAllBillingMonths()
+    public async Task<Result<string>> FetchAllBillingMonths(CancellationToken cancellationToken)
     {
-        var result = await NotionDatasetExporter.ExportToCsvAsync(BillingMonthsDataset);
+        var result = await NotionDatasetExporter.ExportToCsvAsync(BillingMonthsDataset, cancellationToken);
         if (result == null)
             return Result.Failure<string>("Could not fetch billing months");
 
         return result;
     }
 
-    public async Task<Result<string>> FetchAllRecurringDebits()
+    public async Task<Result<string>> FetchAllRecurringDebits(CancellationToken cancellationToken)
     {
-        var result = await NotionDatasetExporter.ExportToCsvAsync(RecurringDebitsDataset);
+        var result = await NotionDatasetExporter.ExportToCsvAsync(RecurringDebitsDataset, cancellationToken);
         if (result == null)
             return Result.Failure<string>("Could not fetch recurring debits");
 
         return result;
     }
 
-    public async Task<Result<string>> FetchAllRecurringCredits()
+    public async Task<Result<string>> FetchAllRecurringCredits(CancellationToken cancellationToken)
     {
-        var result = await NotionDatasetExporter.ExportToCsvAsync(RecurringCreditsDataset);
+        var result = await NotionDatasetExporter.ExportToCsvAsync(RecurringCreditsDataset, cancellationToken);
         if (result == null)
             return Result.Failure<string>("Could not fetch recrring credits");
 
         return result;
     }
 
-    public async Task<Result<BudgetInformation>> GetBudgetInformation(string recurringDebitId) 
+    public async Task<Result<BudgetInformation>> GetBudgetInformation(string recurringDebitId, CancellationToken cancellationToken) 
     {
-        var page = await Client.Pages.RetrieveAsync(recurringDebitId);
+        var page = await Client.Pages.RetrieveAsync(recurringDebitId, cancellationToken);
 
         var name = NotionHelper.GetString(page.Properties["Name"]);
         var currentMonthInfo = NotionHelper.GetString(page.Properties["Budget mois courant"]);

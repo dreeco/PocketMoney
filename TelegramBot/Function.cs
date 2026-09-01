@@ -1,9 +1,13 @@
 using Amazon.Lambda.APIGatewayEvents;
 using Amazon.Lambda.Core;
+using Application.Budget;
 using CSharpFunctionalExtensions;
+using Domain.BudgetEntities;
 using Domain.Repositories;
+using Domain.Services;
 using Infrastructure.AI;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using System.Net;
 using System.Text.Json;
 using TelegramBot.Models;
@@ -16,6 +20,7 @@ public class TelegramFunction
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly List<long> _allowedUserIds;
+    private readonly ILoggerFactory _loggerFactory;
 
     public TelegramFunction() : this(new Startup().ConfigureServices()) { }
 
@@ -28,12 +33,33 @@ public class TelegramFunction
         _allowedUserIds = envIds.Split(',', StringSplitOptions.RemoveEmptyEntries)
                                 .Select(long.Parse)
                                 .ToList();
+
+        // Create an ILoggerFactory instance configured for AWS Lambda
+        _loggerFactory = LoggerFactory.Create(builder =>
+        {
+            builder.AddLambdaLogger(new LambdaLoggerOptions
+            {
+                IncludeCategory = true,
+                IncludeLogLevel = true
+            });
+        });
     }
 
     public async Task<APIGatewayHttpApiV2ProxyResponse> FunctionHandler(
         APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
     {
-        context.Logger.LogInformation($"Received raw body: {request.Body}");
+        // Subtract a safety buffer (e.g., 500ms) to allow cleanup before AWS forcibly terminates the container
+        var timeoutBuffer = TimeSpan.FromMilliseconds(500);
+        var cancellationTimeout = context.RemainingTime > timeoutBuffer
+            ? context.RemainingTime.Subtract(timeoutBuffer)
+            : TimeSpan.FromMilliseconds(100);
+
+        using var cts = new CancellationTokenSource(cancellationTimeout);
+        CancellationToken cancellationToken = cts.Token;
+
+        var externalLogger = _loggerFactory.CreateLogger<TelegramFunction>();
+
+        externalLogger.LogInformation($"Received raw body: {request.Body}");
 
         if (string.IsNullOrWhiteSpace(request.Body))
             return new APIGatewayHttpApiV2ProxyResponse { StatusCode = (int)HttpStatusCode.BadRequest, Body = "Empty body" };
@@ -45,7 +71,7 @@ public class TelegramFunction
         }
         catch (Exception ex)
         {
-            context.Logger.LogError($"Error parsing JSON: {ex.Message}");
+            externalLogger.LogError($"Error parsing JSON: {ex.Message}");
             return new APIGatewayHttpApiV2ProxyResponse { StatusCode = (int)HttpStatusCode.BadRequest, Body = "Invalid JSON" };
         }
 
@@ -56,154 +82,69 @@ public class TelegramFunction
         // 1. Sécurité : Vérifier que l'expéditeur est autorisé
         if (!_allowedUserIds.Contains(message.From.Id))
         {
-            context.Logger.LogWarning($"Unauthorized sender: {message.From.Id} ({message.From.Username})");
+            externalLogger.LogWarning($"Unauthorized sender: {message.From.Id} ({message.From.Username})");
             return new APIGatewayHttpApiV2ProxyResponse { StatusCode = (int)HttpStatusCode.Forbidden, Body = "Unauthorized" };
         }
 
         // 2. Traitement métier via tes services injectés
-        context.Logger.LogInformation($"Processing message: '{message.Text}' from {message.From.Id}");
+        externalLogger.LogInformation($"Processing message: '{message.Text}' from {message.From.Id}");
 
         var parser = _serviceProvider.GetRequiredService<GenAiBudgetService>();
         var budgetRepository = _serviceProvider.GetRequiredService<IBudgetRepository>();
         var budgetNotifier = _serviceProvider.GetRequiredService<IBudgetNotifier>();
 
         var action = "SaisieDépense";
-        var actionResult = await parser.ParseRouteFromMessage(message.Text);
+        var actionResult = await parser.ParseRouteFromMessage(message.Text, cancellationToken);
         if (actionResult.IsSuccess)
             action = actionResult.Value.Action;
+
+        var userRequestHandler = new UserRequestHandler(budgetRepository, parser);
 
         switch (action)
         {
             case "SaisieDépense":
-                return await HandleNewExpense(context, message, parser, budgetRepository, budgetNotifier);
+                var userRequestResponse = await userRequestHandler.HandleNewExpense(externalLogger, message.Text, cancellationToken);
+                if (userRequestResponse.IsFailure)
+                    throw new Exception(userRequestResponse.Error);
+
+                var messageResult = await budgetNotifier.NotifyAllBudgetUsersFromNewMessage(userRequestResponse.Value, cancellationToken);
+                if (messageResult.IsFailure)
+                    externalLogger.LogWarning(messageResult.Error);
+
+                return NoContent();
             case "SaisieRevenu":
-                return await HandleNewIncome(context, message, parser, budgetRepository, budgetNotifier);
+                var userRequestResponseIncome = await userRequestHandler.HandleNewIncome(externalLogger, message.Text, cancellationToken);
+                if (userRequestResponseIncome.IsFailure)
+                    throw new Exception(userRequestResponseIncome.Error);
+
+                var messageResultIncome = await budgetNotifier.NotifyAllBudgetUsersFromNewMessage(userRequestResponseIncome.Value, cancellationToken);
+                if (messageResultIncome.IsFailure)
+                    externalLogger.LogWarning(messageResultIncome.Error);
+
+                return NoContent();
             case "RésuméSituation":
-                return await HandleSituationSummary(message, parser, budgetRepository, budgetNotifier);
+                var responseSummary = await userRequestHandler.HandleSituationSummary(message.Text, cancellationToken);
+                if (responseSummary.IsFailure)
+                    throw new Exception(responseSummary.Error);
+
+                var result = await budgetNotifier.SendMessageToUniqueUser(message.From.Id, responseSummary.Value, cancellationToken);
+                if (result.IsFailure)
+                    externalLogger.LogError(result.Error);
+
+                return NoContent();
             default:
-                break;
+                await budgetNotifier.SendMessageToUniqueUser(message.From.Id, new UserRequestResponse($"⚠️ Je n'ai pas compris la demande."), cancellationToken);
+                return NoContent();
         }
-
-        return SendJsonResponse(new
-        {
-            method = "sendMessage",
-            chat_id = message.From.Id,
-            text = $"⚠️ Je n'ai pas compris la demande.",
-            parse_mode = "Markdown"
-        });
     }
 
-    private static async Task<APIGatewayHttpApiV2ProxyResponse> HandleSituationSummary(TelegramMessage message, GenAiBudgetService parser, IBudgetRepository budgetRepository, IBudgetNotifier budgetNotifier)
-    {
-        var recurringDebits2 = await budgetRepository.FetchAllRecurringDebits();
-        if (recurringDebits2.IsFailure)
-            throw new Exception(recurringDebits2.Error);
-
-        var billingMonths2 = await budgetRepository.FetchAllBillingMonths();
-        if (billingMonths2.IsFailure)
-            throw new Exception(billingMonths2.Error);
-
-        var situation = await parser.EvaluateSituation(message.Text, recurringDebits2.Value, billingMonths2.Value);
-        if (situation.IsFailure)
-            throw new Exception(situation.Error);
-
-        var message2 = await budgetNotifier.BuildSituationSummaryAnswer(message.From.Id, situation.Value);
-        return SendJsonResponse(message2);
-    }
-
-    private static async Task<APIGatewayHttpApiV2ProxyResponse> HandleNewIncome(ILambdaContext context, TelegramMessage message, GenAiBudgetService parser, IBudgetRepository budgetRepository, IBudgetNotifier budgetNotifier)
-    {
-        var recurringCredits = await budgetRepository.FetchAllRecurringCredits();
-        if (recurringCredits.IsFailure)
-            throw new Exception(recurringCredits.Error);
-
-        var parsedIncome = await parser.ParseIncomeAsync(message.Text, recurringCredits.Value);
-
-        if (!parsedIncome.IsSuccess)
-        {
-            var failPayload = new
-            {
-                method = "sendMessage",
-                chat_id = message.From.Id,
-                text = "⚠️ Je n'ai pas pu identifier le montant ou le revenu. Exemple : *'CAF 437€'*",
-                parse_mode = "Markdown"
-            };
-            return SendJsonResponse(failPayload);
-        }
-
-        var income = parsedIncome.Value;
-        var incomeResult = await budgetRepository.CreateIncome(income);
-        if (incomeResult.IsFailure)
-            throw new Exception(incomeResult.Error);
-
-        income.PageUrl = incomeResult.Value.url;
-
-        var messageIncomeResult = await budgetNotifier.NotifyBudgetUsersFromNewIncome(message.From.Id, income);
-        if (!messageIncomeResult.Result.IsSuccess)
-            context.Logger.LogWarning(messageIncomeResult.Result.Error);
-
-        return SendJsonResponse(messageIncomeResult.Reply);
-    }
-
-    private static async Task<APIGatewayHttpApiV2ProxyResponse> HandleNewExpense(ILambdaContext context, TelegramMessage message, GenAiBudgetService parser, IBudgetRepository budgetRepository, IBudgetNotifier budgetNotifier)
-    {
-        var recurringDebits = await budgetRepository.FetchAllRecurringDebits();
-        if (recurringDebits.IsFailure)
-            throw new Exception(recurringDebits.Error);
-
-        var parsedExpense = await parser.ParseExpenseAsync(message.Text, recurringDebits.Value);
-
-        if (!parsedExpense.IsSuccess)
-        {
-            var failPayload = new
-            {
-                method = "sendMessage",
-                chat_id = message.From.Id,
-                text = "⚠️ Je n'ai pas pu identifier le montant ou la dépense. Exemple : *'Courses carrefour 35€'*",
-                parse_mode = "Markdown"
-            };
-            return SendJsonResponse(failPayload);
-        }
-
-        var expense = parsedExpense.Value;
-
-        context.Logger.LogInformation(
-        "Creating Notion expense: Amount={Amount}, Description={Description}, Category={Category}, RecurringDebitId={RecurringDebitId}, RecurringDebitName={RecurringDebitName}, IsTransfer={IsTransfer}",
-        expense.Amount,
-        expense.Description,
-        expense.Category,
-        expense.RecurringDebitId,
-        expense.RecurringDebitName,
-        expense.IsTransfer
-    );
-
-        var budgetLeftResult = await budgetRepository.GetBudgetInformation(expense.RecurringDebitId);
-        if (!budgetLeftResult.IsSuccess)
-            throw new Exception("Impossible to fetch budget");
-
-        // Override transfer when false and recurring debit associated is made by transfer
-        expense.IsTransfer = expense.IsTransfer == false ? budgetLeftResult.Value.IsTransfer : expense.IsTransfer;
-
-        var result = await budgetRepository.CreateExpense(expense);
-        if (!result.IsSuccess)
-            throw new Exception("Impossible to create expense: " + result.Error);
-
-        expense.PageUrl = result.Value.url;
-
-        var messageResult = await budgetNotifier.NotifyBudgetUsersFromNewExpense(message.From.Id, expense, budgetLeftResult.Value);
-        if (!messageResult.Result.IsSuccess)
-            context.Logger.LogWarning(messageResult.Result.Error);
-
-        return SendJsonResponse(messageResult.Reply);
-    }
-
-    private static APIGatewayHttpApiV2ProxyResponse SendJsonResponse(object replyPayload)
+    private static APIGatewayHttpApiV2ProxyResponse NoContent()
     {
         return new APIGatewayHttpApiV2ProxyResponse
         {
-            StatusCode = 200,
-            Headers = new Dictionary<string, string> { { "Content-Type", "application/json" } },
-            Body = JsonSerializer.Serialize(replyPayload)
+            StatusCode = (int)HttpStatusCode.NoContent,
+            Body = string.Empty,
+            Headers = new Dictionary<string, string> { { "Content-Type", "application/json" } }
         };
     }
 }
