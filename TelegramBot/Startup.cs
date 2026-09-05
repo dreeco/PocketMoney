@@ -5,6 +5,7 @@ using Infrastructure.AI;
 using Infrastructure.DataAccess;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Telegram.Bot;
 
 namespace TelegramBot;
@@ -24,6 +25,7 @@ public class Startup
     public IServiceProvider ConfigureServices()
     {
         var services = new ServiceCollection();
+        AddLogging(services);
 
         RegisterConfiguration(services);
 
@@ -40,12 +42,30 @@ public class Startup
         return services.BuildServiceProvider();
     }
 
+    private static void AddLogging(ServiceCollection services)
+    {
+        services.AddLogging(builder =>
+        {
+            builder.AddLambdaLogger(new LambdaLoggerOptions
+            {
+                IncludeCategory = true,
+                IncludeLogLevel = true
+            });
+
+            builder.SetMinimumLevel(LogLevel.Information);
+        });
+    }
+
     private static void RegisterGeminiParser(ServiceCollection services)
     {
         var geminiApiKey = Environment.GetEnvironmentVariable("GEMINI_API_KEY")
                                ?? throw new InvalidOperationException("GEMINI_API_KEY missing.");
 
-        services.AddSingleton<IGenAiBudgetService>(new GenAiBudgetService(geminiApiKey));
+        services.AddSingleton<IGenAiBudgetService>(b =>
+        new GenAiBudgetService(
+            b.GetRequiredService<ILogger<GenAiBudgetService>>(),
+            geminiApiKey
+        ));
     }
 
     private static void RegisterTelegramBot(ServiceCollection services)

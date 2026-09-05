@@ -16,7 +16,6 @@ public class TelegramFunction
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly List<long> _allowedUserIds;
-    private readonly ILoggerFactory _loggerFactory;
 
     public TelegramFunction() : this(new Startup().ConfigureServices()) { }
 
@@ -30,15 +29,6 @@ public class TelegramFunction
                                 .Select(long.Parse)
                                 .ToList();
 
-        // Create an ILoggerFactory instance configured for AWS Lambda
-        _loggerFactory = LoggerFactory.Create(builder =>
-        {
-            builder.AddLambdaLogger(new LambdaLoggerOptions
-            {
-                IncludeCategory = true,
-                IncludeLogLevel = true
-            });
-        });
     }
 
     public async Task<APIGatewayHttpApiV2ProxyResponse> FunctionHandler(
@@ -53,8 +43,8 @@ public class TelegramFunction
         using var cts = new CancellationTokenSource(cancellationTimeout);
         CancellationToken cancellationToken = cts.Token;
 
-        var externalLogger = _loggerFactory.CreateLogger<TelegramFunction>();
-
+        //var externalLogger = _loggerFactory.CreateLogger<TelegramFunction>();
+        var externalLogger = _serviceProvider.GetRequiredService<ILogger<TelegramFunction>>();
         externalLogger.LogInformation($"Received raw body: {request.Body}");
 
         if (string.IsNullOrWhiteSpace(request.Body))
@@ -86,7 +76,7 @@ public class TelegramFunction
         externalLogger.LogInformation($"Processing message: '{message.Text}' from {message.From.Id}");
 
         var userRequestHandler = _serviceProvider.GetRequiredService<IUserRequestHandler>();
-        var result = await userRequestHandler.ParseMessage(externalLogger, message.Text, message.From.Id, cancellationToken);
+        var result = await userRequestHandler.ParseMessage(message.Text, message.From.Id, cancellationToken);
         if (result.IsFailure)
         {
             context.Logger.LogError("Failed on " + result.Error);

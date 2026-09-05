@@ -8,19 +8,19 @@ namespace Application.Budget;
 
 public interface IUserRequestHandler
 {
-    Task<Result<UserRequestResponse>> HandleNewExpense(ILogger logger, string userMessage, CancellationToken cancellationToken);
-    Task<Result<UserRequestResponse>> HandleNewIncome(ILogger logger, string userMessage, CancellationToken cancellationToken);
-    Task<Result> ParseMessage(ILogger logger, string userMessage, long userId, CancellationToken cancellationToken);
+    Task<Result> ParseMessage(string userMessage, long userId, CancellationToken cancellationToken);
 }
 
 public class UserRequestHandler : IUserRequestHandler
 {
+    private readonly ILogger<UserRequestHandler> _logger;
     private readonly IBudgetRepository _repository;
     private readonly IGenAiBudgetService _genAiBudgetService;
     private readonly IBudgetNotifier _budgetNotifier;
 
-    public UserRequestHandler(IBudgetRepository repository, IGenAiBudgetService genAiBudgetService, IBudgetNotifier budgetNotifier)
+    public UserRequestHandler(ILogger<UserRequestHandler> logger, IBudgetRepository repository, IGenAiBudgetService genAiBudgetService, IBudgetNotifier budgetNotifier)
     {
+        _logger = logger;
         _repository = repository;
         _genAiBudgetService = genAiBudgetService;
         _budgetNotifier = budgetNotifier;
@@ -43,16 +43,17 @@ public class UserRequestHandler : IUserRequestHandler
             .LogInformation("Creating Notion expense: Amount={Amount}, Description={Description}, Category={Category}, RecurringDebitId={RecurringDebitId}, RecurringDebitName={RecurringDebitName}, IsTransfer={IsTransfer}",
             expense.Amount, expense.Description, expense.Category, expense.RecurringDebitId, expense.RecurringDebitName, expense.IsTransfer);
 
-        var budgetLeftResult = await _repository.GetBudgetInformation(expense.RecurringDebitId, cancellationToken);
-        if (!budgetLeftResult.IsSuccess)
-            return Result.Failure<UserRequestResponse>("Impossible to fetch budget");
 
-        // Override transfer when false and recurring debit associated is made by transfer
-        expense.IsTransfer = expense.IsTransfer == false ? budgetLeftResult.Value.IsTransfer : expense.IsTransfer;
+        //// Override transfer when false and recurring debit associated is made by transfer
+        //expense.IsTransfer = expense.IsTransfer == false ? budgetLeftResult.Value.IsTransfer : expense.IsTransfer;
 
         var result = await _repository.CreateExpense(expense, cancellationToken);
         if (!result.IsSuccess)
             return Result.Failure<UserRequestResponse>("Impossible to create expense: " + result.Error);
+
+        var budgetLeftResult = await _repository.GetBudgetInformation(expense.RecurringDebitId, cancellationToken);
+        if (!budgetLeftResult.IsSuccess)
+            return Result.Failure<UserRequestResponse>("Impossible to fetch budget");
 
         expense.PageUrl = result.Value.url;
 
@@ -129,7 +130,7 @@ public class UserRequestHandler : IUserRequestHandler
         return new UserRequestResponse(situation.Value.Summary);
     }
 
-    public async Task<Result> ParseMessage(ILogger logger, string userMessage, long userId, CancellationToken cancellationToken)
+    public async Task<Result> ParseMessage(string userMessage, long userId, CancellationToken cancellationToken)
     {
         var actionResult = await _genAiBudgetService.ParseRouteFromMessage(userMessage, cancellationToken);
         if (actionResult.IsFailure)
@@ -138,18 +139,18 @@ public class UserRequestHandler : IUserRequestHandler
         switch (actionResult.Value.Action)
         {
             case "SaisieDépense":
-                var userRequestResponse = await HandleNewExpense(logger, userMessage, cancellationToken);
+                var userRequestResponse = await HandleNewExpense(_logger, userMessage, cancellationToken);
                 if (userRequestResponse.IsFailure)
                     return Result.Failure(userRequestResponse.Error);
 
-                return await NotifyAll(logger, userId, userRequestResponse, cancellationToken);
+                return await NotifyAll(_logger, userId, userRequestResponse, cancellationToken);
             
             case "SaisieRevenu":
-                var userRequestResponseIncome = await HandleNewIncome(logger, userMessage, cancellationToken);
+                var userRequestResponseIncome = await HandleNewIncome(_logger, userMessage, cancellationToken);
                 if (userRequestResponseIncome.IsFailure)
                     return Result.Failure(userRequestResponseIncome.Error);
                 
-                return await NotifyAll(logger, userId, userRequestResponseIncome, cancellationToken);
+                return await NotifyAll(_logger, userId, userRequestResponseIncome, cancellationToken);
             
             case "RésuméSituation":
                 var responseSummary = await HandleSituationSummary(userMessage, cancellationToken);
@@ -158,7 +159,7 @@ public class UserRequestHandler : IUserRequestHandler
 
                 var result = await _budgetNotifier.SendMessageToUniqueUser(userId, responseSummary.Value, cancellationToken);
                 if (result.IsFailure)
-                    logger.LogError(result.Error);
+                    _logger.LogError(result.Error);
 
                 return Result.Success();
 

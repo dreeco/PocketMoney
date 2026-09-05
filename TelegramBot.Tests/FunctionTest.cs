@@ -4,10 +4,10 @@ using Domain.Repositories;
 using Infrastructure.AI;
 using Infrastructure.DataAccess;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Notion.Client;
-using Telegram.Bot;
-using Telegram.Bot.Types;
 using Xunit;
 
 namespace TelegramBot.Tests;
@@ -15,6 +15,10 @@ namespace TelegramBot.Tests;
 public class FunctionTest
 {
     IConfiguration Configuration;
+    private ILogger logger;
+    private ILogger<BudgetRepository> budgetRepositoryLogger => logger as ILogger<BudgetRepository> ?? throw new Exception("Could not cast Logger to ILogger<IBudgetRepository>");
+    private string geminiApiKey;
+
     public FunctionTest()
     {
         Configuration = new ConfigurationBuilder()
@@ -31,6 +35,10 @@ public class FunctionTest
                 Environment.SetEnvironmentVariable(pair.Key, pair.Value);
             }
         }
+
+        geminiApiKey = Environment.GetEnvironmentVariable("GEMINI_API_KEY") ?? throw new Exception("Could not find gemini api key");
+
+        logger = NullLogger<TelegramFunction>.Instance;
     }
 
     //[Fact]
@@ -53,7 +61,7 @@ public class FunctionTest
         var initialTime = DateTimeOffset.Parse(givenDate);
         var fakeTimeProvider = new FakeTimeProvider(initialTime);
 
-        var budgetRepository = new BudgetRepository(Configuration, fakeTimeProvider);
+        var budgetRepository = new BudgetRepository(budgetRepositoryLogger, Configuration, fakeTimeProvider);
 
         var month = await budgetRepository.GetCurrentBillingMonth(CancellationToken.None);
 
@@ -69,7 +77,7 @@ public class FunctionTest
         {
             AuthToken = Configuration.GetRequiredSection("authToken").Value
         });
-        var datasetExporter = new NotionDatasetExporter(client);
+        var datasetExporter = new NotionDatasetExporter(client, logger);
         var datasetId = Environment.GetEnvironmentVariable("recurringDebitsDataset") ?? throw new Exception("Could not find dataset id");
         var yml = await datasetExporter.ExportToYamlAsync(datasetId, CancellationToken.None);
         var md = await datasetExporter.ExportToMarkdownAsync(datasetId, CancellationToken.None);
@@ -87,7 +95,7 @@ public class FunctionTest
     [Fact]
     public async Task TestGetBudgetInformation()
     {
-        var budgetRepository = new BudgetRepository(Configuration, TimeProvider.System);
+        var budgetRepository = new BudgetRepository(budgetRepositoryLogger, Configuration, TimeProvider.System);
         var budgetLeftResult = await budgetRepository.GetBudgetInformation("3b8bbbc3b4e98091ab8cf46e35a8be77", CancellationToken.None);
 
         Assert.True(budgetLeftResult.IsSuccess);
@@ -110,7 +118,7 @@ public class FunctionTest
     [InlineData("Budgets mois", "RésuméSituation")]
     public async Task TestRouteAction(string message, string expectedAction)
     {
-        var geminiParser2 = new GenAiBudgetService(Environment.GetEnvironmentVariable("GEMINI_API_KEY") ?? throw new Exception("Could not find gemini api key"));
+        var geminiParser2 = new GenAiBudgetService(logger, geminiApiKey);
         var routeActionResult2 = await geminiParser2.ParseRouteFromMessage(message, CancellationToken.None);
 
         Assert.True(routeActionResult2.IsSuccess, routeActionResult2.IsFailure ? routeActionResult2.Error : string.Empty);
@@ -126,9 +134,9 @@ public class FunctionTest
     [InlineData("Retrait 100€ maréchal", 100d, true, "3babbbc3b4e98050bd2af89429bc2e35")]
     public async Task TestParseExpense(string message, double expectedAmount, bool expectedIsTransfer, string expectedRecurringDebitId)
     {
-        var geminiParser = new GenAiBudgetService(Environment.GetEnvironmentVariable("GEMINI_API_KEY") ?? throw new Exception("Could not find gemini api key"));
+        var geminiParser = new GenAiBudgetService(logger, geminiApiKey);
 
-        var budgetRepository = new BudgetRepository(Configuration, TimeProvider.System);
+        var budgetRepository = new BudgetRepository(budgetRepositoryLogger, Configuration, TimeProvider.System);
         var recurringDebits = await budgetRepository.FetchAllRecurringDebits(CancellationToken.None);
 
         var expenseResult = await geminiParser.ParseExpenseAsync(message, recurringDebits.Value, CancellationToken.None);
@@ -148,9 +156,9 @@ public class FunctionTest
     [InlineData("CAF 421€", 421d, true, "3b9bbbc3b4e980e08ba6ce81fc647979")]
     public async Task TestParseIncome(string message, double expectedAmount, bool expectedIsTransfer, string expectedRecurringDebitId)
     {
-        var geminiParser = new GenAiBudgetService(Environment.GetEnvironmentVariable("GEMINI_API_KEY") ?? throw new Exception("Could not find gemini api key"));
+        var geminiParser = new GenAiBudgetService(logger, geminiApiKey);
 
-        var budgetRepository = new BudgetRepository(Configuration, TimeProvider.System);
+        var budgetRepository = new BudgetRepository(budgetRepositoryLogger, Configuration, TimeProvider.System);
         var recurringDebits = await budgetRepository.FetchAllRecurringCredits(CancellationToken.None);
 
         var expenseResult = await geminiParser.ParseIncomeAsync(message, recurringDebits.Value, CancellationToken.None);
@@ -165,7 +173,7 @@ public class FunctionTest
     [Fact]
     public async Task TestCreateIncome()
     {
-        var budgetRepository = new BudgetRepository(Configuration, TimeProvider.System);
+        var budgetRepository = new BudgetRepository(budgetRepositoryLogger, Configuration, TimeProvider.System);
         var createdIncome = await budgetRepository.CreateIncome(new Expense() { Amount = 42.42, Category = "Remboursement", Description = "Remboursement Amazon divers", IsTransfer = true, RecurringDebitId = "c28bbbc3b4e98398a546818226f9904a" }, CancellationToken.None);
 
         Assert.True(createdIncome.IsSuccess);

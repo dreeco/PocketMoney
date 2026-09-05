@@ -3,12 +3,17 @@ using CSharpFunctionalExtensions;
 using Domain.BudgetEntities;
 using Domain.Repositories;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Notion.Client;
+using System.Data;
+using System.Diagnostics;
 
 namespace Infrastructure.DataAccess;
 
 public class BudgetRepository : IBudgetRepository
 {
+    private readonly ILogger<IBudgetRepository> _logger;
+
     private NotionClient Client { get; set; }
     private string DebitsDataset { get; set; }
     private string CreditsDataset { get; set; }
@@ -19,7 +24,7 @@ public class BudgetRepository : IBudgetRepository
 
     private NotionDatasetExporter NotionDatasetExporter { get; }
 
-    public BudgetRepository(IConfiguration configuration, TimeProvider timeProvider)
+    public BudgetRepository(ILogger<BudgetRepository> logger, IConfiguration configuration, TimeProvider timeProvider)
     {
         Client = NotionClientFactory.Create(new ClientOptions
         {
@@ -31,8 +36,9 @@ public class BudgetRepository : IBudgetRepository
         RecurringDebitsDataset = configuration.GetRequiredSection("recurringDebitsDataset").Value ?? throw new ArgumentNullException(nameof(RecurringDebitsDataset));
         RecurringCreditsDataset = configuration.GetRequiredSection("recurringCreditsDataset").Value ?? throw new ArgumentNullException(nameof(RecurringCreditsDataset));
         BillingMonthsDataset = configuration.GetRequiredSection("billingMonthsDataset").Value ?? throw new ArgumentNullException(nameof(BillingMonthsDataset));
+        _logger = logger;
         TimeProvider = timeProvider;
-        NotionDatasetExporter = new NotionDatasetExporter(Client);
+        NotionDatasetExporter = new NotionDatasetExporter(Client, logger);
     }
 
     public async Task<Result<BillingMonth>> GetCurrentBillingMonth(CancellationToken cancellationToken)
@@ -45,8 +51,7 @@ public class BudgetRepository : IBudgetRepository
         var endDate = startDate.AddMonths(1).AddDays(-1);
 
         var queryParameters = NotionHelper.GetParameters([new DateFilter("Date", onOrAfter: startDate), new DateFilter("Date", onOrBefore: endDate)]);
-
-        var response = await Client.Databases.QueryAsync(BillingMonthsDataset, queryParameters, cancellationToken);
+        var response = await QueryNotionBudgetPage(BillingMonthsDataset, queryParameters, cancellationToken);
 
         return response.Results
             .Select(r => GetBillingMonthFromPage(r as Page))
@@ -118,7 +123,7 @@ public class BudgetRepository : IBudgetRepository
             Properties = properties
         };
 
-        var page = await Client.Pages.CreateAsync(createPageParameters, cancellationToken);
+        var page = await CreateNotionPage(createPageParameters, cancellationToken);
         if (page == null)
             return Result.Failure<ExpensePage>("Could not create Notion page");
         return Result.Success(new ExpensePage(page.Id, page.Url));
@@ -173,8 +178,8 @@ public class BudgetRepository : IBudgetRepository
             Parent = new DatabaseParentInput { DatabaseId = CreditsDataset },
             Properties = properties
         };
-
-        var page = await Client.Pages.CreateAsync(createPageParameters, cancellationToken);
+        
+        var  page = await CreateNotionPage(createPageParameters, cancellationToken);
         if (page == null)
             return Result.Failure<ExpensePage>("Could not create Notion page");
 
@@ -208,9 +213,9 @@ public class BudgetRepository : IBudgetRepository
         return result;
     }
 
-    public async Task<Result<BudgetInformation>> GetBudgetInformation(string recurringDebitId, CancellationToken cancellationToken) 
+    public async Task<Result<BudgetInformation>> GetBudgetInformation(string recurringDebitId, CancellationToken cancellationToken)
     {
-        var page = await Client.Pages.RetrieveAsync(recurringDebitId, cancellationToken);
+        var page = await RetrieveSinglePage(recurringDebitId, cancellationToken);
 
         var name = NotionHelper.GetString(page.Properties["Name"]);
         var currentMonthInfo = NotionHelper.GetString(page.Properties["Budget mois courant"]);
@@ -221,5 +226,56 @@ public class BudgetRepository : IBudgetRepository
 
         return new BudgetInformation(page.Id, name.Value, currentMonthInfo.Value, !isCB.Value);
     }
+
+
+    private async Task<DatabaseQueryResponse> QueryNotionBudgetPage(string dataset, DatabasesQueryParameters queryParameters, CancellationToken cancellationToken)
+    {
+        var stopWatch = GetStartedStopWatch();
+
+        try
+        {
+            return await Client.Databases.QueryAsync(dataset, queryParameters, cancellationToken);
+        }
+        finally
+        {
+            _logger.LogInformation("QueryNotionBudgetPage {dataset} for {elapsedTime}ms", dataset, stopWatch.ElapsedMilliseconds);
+        }
+    }
+
+    private static Stopwatch GetStartedStopWatch()
+    {
+        var stopWatch = new Stopwatch();
+        stopWatch.Start();
+        return stopWatch;
+    }
+
+    private async Task<Page> CreateNotionPage(PagesCreateParameters createPageParameters, CancellationToken cancellationToken)
+    {
+        var stopWatch = GetStartedStopWatch();
+
+        try
+        {
+            return await Client.Pages.CreateAsync(createPageParameters, cancellationToken);
+        }
+        finally
+        {
+            _logger.LogInformation("CreateNotionPage {dataset} for {elapsedTime}ms", createPageParameters.Parent, stopWatch.ElapsedMilliseconds);
+        }
+    }
+
+    private async Task<Page> RetrieveSinglePage(string pageId, CancellationToken cancellationToken)
+    {
+        var stopWatch = GetStartedStopWatch();
+
+        try
+        {
+            return await Client.Pages.RetrieveAsync(pageId, cancellationToken);
+        }
+        finally
+        {
+            _logger.LogInformation("RetrieveSinglePage {pageId} for {elapsedTime}ms", pageId, stopWatch.ElapsedMilliseconds);
+        }
+    }
+
 
 }

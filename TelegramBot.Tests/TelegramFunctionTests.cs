@@ -1,11 +1,9 @@
 ﻿using Amazon.Lambda.APIGatewayEvents;
-using Amazon.Lambda.TestUtilities; // Fournit TestLambdaContext
+using Amazon.Lambda.TestUtilities;
 using Application.Budget;
 using CSharpFunctionalExtensions;
 using FluentAssertions;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using System.Net;
 using Xunit;
@@ -135,7 +133,6 @@ public class TelegramFunctionMockedTests
 
         _userRequestHandlerMock
             .Setup(x => x.ParseMessage(
-                It.IsAny<ILogger>(),
                 "12 euros Gifi",
                 authorizedUserId,
                 It.IsAny<CancellationToken>()))
@@ -156,7 +153,6 @@ public class TelegramFunctionMockedTests
 
         // Vérifie que ton service métier a bien été appelé 1 seule fois avec les bonnes valeurs
         _userRequestHandlerMock.Verify(x => x.ParseMessage(
-            It.IsAny<ILogger>(),
             "12 euros Gifi",
             authorizedUserId,
             It.IsAny<CancellationToken>()), Times.Once);

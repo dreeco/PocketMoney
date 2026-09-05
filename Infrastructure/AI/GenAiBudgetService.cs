@@ -3,6 +3,8 @@ using Domain.BudgetEntities;
 using Domain.Services;
 using Google.GenAI;
 using Google.GenAI.Types;
+using Microsoft.Extensions.Logging;
+using System.Diagnostics;
 using System.Text.Json;
 using Type = Google.GenAI.Types.Type;
 
@@ -11,11 +13,13 @@ namespace Infrastructure.AI;
 public class GenAiBudgetService : IGenAiBudgetService
 {
     private const string DefaultLLM = "gemini-3.5-flash-lite";
+    private readonly ILogger _logger;
     private Client _client;
 
-    public GenAiBudgetService(string apiKey)
+    public GenAiBudgetService(ILogger logger, string apiKey)
     {
         _client = new Client(apiKey: apiKey);
+        _logger = logger;
     }
 
     public async Task<Result<Situation>> EvaluateSituation(string rawUserInput, string recurringDebits, string billingMonths, CancellationToken cancellationToken)
@@ -91,7 +95,7 @@ public class GenAiBudgetService : IGenAiBudgetService
             3. **`category`** : C'est uniquement un tag analytique. Choisis STRICTEMENT la catégorie la plus pertinente parmi cette liste : [{{categoriesList}}].
             4. **`recurring_debit_name`** : Le nom exact de la ligne choisie dans le catalogue CSV ci-dessous (ex: "Courses" ou "Plaisir").
             5. **`recurring_debit_id`** : (CRITIQUE) Renseigne OBLIGATOIREMENT le **Notion Page Id** correspondant au `recurring_debit_name` choisi. Tu dois COPIER EXACTEMENT la chaîne de 32 caractères du CSV, SANS AUCUN TIRET (`-`). N'invente pas d'ID et ne formate pas en UUID avec des tirets.
-            6. **`is_transfer`** : Vrai si la dépense est faite par chèque / virement / retrait d'espèces
+            6. **`is_transfer`** : Vrai si la dépense est faite par chèque / virement / retrait d'espèces ou si la dépense récurrente associée a "Sur la CB" à faux
 
             ### 🧠 LOGIQUE D'AFFECTATION DU BUDGET (`recurring_debit_id`) :
             Le catalogue contient des budgets progressifs (achats du quotidien, `Progressif=Yes`) et des charges fixes (abonnements, prêts, assurances, `Progressif=No`). Fais preuve de déduction grâce à ces règles absolues :
@@ -241,6 +245,9 @@ public class GenAiBudgetService : IGenAiBudgetService
 
     private async Task<Result<T>> RunPrompt<T>(string rawUserInput, GenerateContentConfig config, CancellationToken cancellationToken)
     {
+        var stopWatch = new Stopwatch();
+        stopWatch.Start();
+
         try
         {
             var response = await _client.Models.GenerateContentAsync(
@@ -264,6 +271,10 @@ public class GenAiBudgetService : IGenAiBudgetService
         catch (Exception ex)
         {
             return Result.Failure<T>($"Gemini API Exception: {ex.Message}");
+        }
+        finally 
+        {
+            _logger.LogInformation("RawUserInput={rawUserInput}, Config={config}, EllapsedTime={elapsed}ms", rawUserInput, config, stopWatch.ElapsedMilliseconds);
         }
     }
 }

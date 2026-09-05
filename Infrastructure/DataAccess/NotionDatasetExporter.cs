@@ -1,4 +1,6 @@
-﻿using Notion.Client;
+﻿using Microsoft.Extensions.Logging;
+using Notion.Client;
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 
@@ -7,10 +9,12 @@ namespace Application.Helpers;
 public class NotionDatasetExporter
 {
     private readonly INotionClient _client;
+    private readonly ILogger _logger;
 
-    public NotionDatasetExporter(INotionClient client)
+    public NotionDatasetExporter(INotionClient client, ILogger logger)
     {
         _client = client;
+        _logger = logger;
     }
 
     /// <summary>
@@ -50,6 +54,9 @@ public class NotionDatasetExporter
     /// </summary>
     public async Task<string> ExportToCsvAsync(string databaseId, CancellationToken cancellationToken, IEnumerable<string>? filterColumns = null, IEnumerable<string>? filterRowsName = null)
     {
+        var stopWatch = new Stopwatch();
+        stopWatch.Start();
+
         var pages = (await FetchAllPagesAsync(databaseId, cancellationToken))
             .Where(p => filterRowsName == null || filterRowsName.Contains(ExtractPropertyValue(p.Properties["Name"])));
         if (!pages.Any()) return string.Empty;
@@ -67,6 +74,7 @@ public class NotionDatasetExporter
             sb.AppendLine(string.Join(",", rowValues));
         }
 
+        _logger.LogInformation("ExportToCsvAsync completed after {elapsedTime}ms and found {pagesCount} pages", stopWatch.ElapsedMilliseconds, pages.Count());
         return sb.ToString();
     }
 
