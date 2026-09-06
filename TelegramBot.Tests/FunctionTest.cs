@@ -15,8 +15,9 @@ namespace TelegramBot.Tests;
 public class FunctionTest
 {
     IConfiguration Configuration;
-    private ILogger logger;
-    private ILogger<BudgetRepository> budgetRepositoryLogger => logger as ILogger<BudgetRepository> ?? throw new Exception("Could not cast Logger to ILogger<IBudgetRepository>");
+    private ILogger<NotionDatasetExporter> notionDatasetExporterLogger => NullLogger<NotionDatasetExporter>.Instance;
+    private ILogger<BudgetRepository> budgetRepositoryLogger => NullLogger<BudgetRepository>.Instance;
+    private ILogger<GenAiBudgetService> genAiBudgetServiceLogger => NullLogger<GenAiBudgetService>.Instance;
     private string geminiApiKey;
 
     public FunctionTest()
@@ -37,8 +38,6 @@ public class FunctionTest
         }
 
         geminiApiKey = Environment.GetEnvironmentVariable("GEMINI_API_KEY") ?? throw new Exception("Could not find gemini api key");
-
-        logger = NullLogger<TelegramFunction>.Instance;
     }
 
     //[Fact]
@@ -77,7 +76,7 @@ public class FunctionTest
         {
             AuthToken = Configuration.GetRequiredSection("authToken").Value
         });
-        var datasetExporter = new NotionDatasetExporter(client, logger);
+        var datasetExporter = new NotionDatasetExporter(client, notionDatasetExporterLogger);
         var datasetId = Environment.GetEnvironmentVariable("recurringDebitsDataset") ?? throw new Exception("Could not find dataset id");
         var yml = await datasetExporter.ExportToYamlAsync(datasetId, CancellationToken.None);
         var md = await datasetExporter.ExportToMarkdownAsync(datasetId, CancellationToken.None);
@@ -118,7 +117,7 @@ public class FunctionTest
     [InlineData("Budgets mois", "RésuméSituation")]
     public async Task TestRouteAction(string message, string expectedAction)
     {
-        var geminiParser2 = new GenAiBudgetService(logger, geminiApiKey);
+        var geminiParser2 = new GenAiBudgetService(genAiBudgetServiceLogger, geminiApiKey);
         var routeActionResult2 = await geminiParser2.ParseRouteFromMessage(message, CancellationToken.None);
 
         Assert.True(routeActionResult2.IsSuccess, routeActionResult2.IsFailure ? routeActionResult2.Error : string.Empty);
@@ -132,9 +131,10 @@ public class FunctionTest
     [InlineData("Abonnement Lunii 10.90", 10.9d, false, "3bbbbbc3b4e980dfadcee70bb32d2c0f")]
     [InlineData("Chèque 105,26 ferme", 105.26d, true, "3b7bbbc3b4e980fba81cd7ecb64c04ce")]
     [InlineData("Retrait 100€ maréchal", 100d, true, "3babbbc3b4e98050bd2af89429bc2e35")]
+    [InlineData("Assurance habitation 65", 65d, true, "3b8bbbc3b4e98077ac40f6030f59d50e")]
     public async Task TestParseExpense(string message, double expectedAmount, bool expectedIsTransfer, string expectedRecurringDebitId)
     {
-        var geminiParser = new GenAiBudgetService(logger, geminiApiKey);
+        var geminiParser = new GenAiBudgetService(genAiBudgetServiceLogger, geminiApiKey);
 
         var budgetRepository = new BudgetRepository(budgetRepositoryLogger, Configuration, TimeProvider.System);
         var recurringDebits = await budgetRepository.FetchAllRecurringDebits(CancellationToken.None);
@@ -156,7 +156,7 @@ public class FunctionTest
     [InlineData("CAF 421€", 421d, true, "3b9bbbc3b4e980e08ba6ce81fc647979")]
     public async Task TestParseIncome(string message, double expectedAmount, bool expectedIsTransfer, string expectedRecurringDebitId)
     {
-        var geminiParser = new GenAiBudgetService(logger, geminiApiKey);
+        var geminiParser = new GenAiBudgetService(genAiBudgetServiceLogger, geminiApiKey);
 
         var budgetRepository = new BudgetRepository(budgetRepositoryLogger, Configuration, TimeProvider.System);
         var recurringDebits = await budgetRepository.FetchAllRecurringCredits(CancellationToken.None);

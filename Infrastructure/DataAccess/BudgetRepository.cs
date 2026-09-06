@@ -197,7 +197,7 @@ public class BudgetRepository : IBudgetRepository
 
     public async Task<Result<string>> FetchAllRecurringDebits(CancellationToken cancellationToken)
     {
-        var result = await NotionDatasetExporter.ExportToCsvAsync(RecurringDebitsDataset, cancellationToken);
+        var result = await NotionDatasetExporter.ExportToCsvAsync(RecurringDebitsDataset, cancellationToken, ["Name", "Montant", "Virement", "Catégorie", "Notion Page Id"]);
         if (result == null)
             return Result.Failure<string>("Could not fetch recurring debits");
 
@@ -219,12 +219,12 @@ public class BudgetRepository : IBudgetRepository
 
         var name = NotionHelper.GetString(page.Properties["Name"]);
         var currentMonthInfo = NotionHelper.GetString(page.Properties["Budget mois courant"]);
-        var isCB = NotionHelper.GetBoolean(page.Properties["Sur la CB"]);
+        var isTransfer = NotionHelper.GetBoolean(page.Properties["Virement"]);
 
         if (!name.IsSuccess || !currentMonthInfo.IsSuccess)
             return Result.Failure<BudgetInformation>("Impossible de récupérer le budget");
 
-        return new BudgetInformation(page.Id, name.Value, currentMonthInfo.Value, !isCB.Value);
+        return new BudgetInformation(page.Id, name.Value, currentMonthInfo.Value, isTransfer.Value);
     }
 
 

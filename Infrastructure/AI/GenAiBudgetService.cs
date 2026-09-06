@@ -95,7 +95,7 @@ public class GenAiBudgetService : IGenAiBudgetService
             3. **`category`** : C'est uniquement un tag analytique. Choisis STRICTEMENT la catégorie la plus pertinente parmi cette liste : [{{categoriesList}}].
             4. **`recurring_debit_name`** : Le nom exact de la ligne choisie dans le catalogue CSV ci-dessous (ex: "Courses" ou "Plaisir").
             5. **`recurring_debit_id`** : (CRITIQUE) Renseigne OBLIGATOIREMENT le **Notion Page Id** correspondant au `recurring_debit_name` choisi. Tu dois COPIER EXACTEMENT la chaîne de 32 caractères du CSV, SANS AUCUN TIRET (`-`). N'invente pas d'ID et ne formate pas en UUID avec des tirets.
-            6. **`is_transfer`** : Vrai si la dépense est faite par chèque / virement / retrait d'espèces ou si la dépense récurrente associée a "Sur la CB" à faux
+            6. **`is_transfer`** : ATTENTION *Après avoir trouvé la dépense récurrente* => Vrai si la propriété `Virement` est vraie ou si la dépense est faite par chèque / virement / retrait d'espèces
 
             ### 🧠 LOGIQUE D'AFFECTATION DU BUDGET (`recurring_debit_id`) :
             Le catalogue contient des budgets progressifs (achats du quotidien, `Progressif=Yes`) et des charges fixes (abonnements, prêts, assurances, `Progressif=No`). Fais preuve de déduction grâce à ces règles absolues :
@@ -119,18 +119,18 @@ public class GenAiBudgetService : IGenAiBudgetService
 
             ### 💡 EXEMPLES DE MAPPINGS ATTENDUS :
             - Input: "120.50 cloture lysadis"
-              Output: amount=120.50, category="Maison", description="Clôture Lysadis", recurring_debit_id="3b8bbbc3b4e98091ab8cf46e35a8be77", recurring_debit_name="Plaisir", is_valid_expense=true
+              Output: amount=120.50, category="Maison", description="Clôture Lysadis", recurring_debit_id="3b8bbbc3b4e98091ab8cf46e35a8be77", recurring_debit_name="Plaisir", is_valid_expense=true, is_transfer=false
             - Input: "Gifi 34,98 verres + brome"
-              Output: amount=34.98, category="Maison", description="Verres + brome Gifi", recurring_debit_id="3b8bbbc3b4e98091ab8cf46e35a8be77", recurring_debit_name="Plaisir", is_valid_expense=true
+              Output: amount=34.98, category="Maison", description="Verres + brome Gifi", recurring_debit_id="3b8bbbc3b4e98091ab8cf46e35a8be77", recurring_debit_name="Plaisir", is_valid_expense=true, is_transfer=false
             - Input: "Lait végétal Amazon 60.59"
-              Output: amount=60.59, category="Alimentation", description="Lait végétal Amazon", recurring_debit_id="3b7bbbc3b4e980fba81cd7ecb64c04ce", recurring_debit_name="Courses", is_valid_expense=true
+              Output: amount=60.59, category="Alimentation", description="Lait végétal Amazon", recurring_debit_id="3b7bbbc3b4e980fba81cd7ecb64c04ce", recurring_debit_name="Courses", is_valid_expense=true, is_transfer=false
             - Input: "34.99 croquettes et 12.50 burger king"
-              Output 1: amount=34.99, category="Animaux", description="Croquettes", recurring_debit_id="3b8bbbc3b4e9807eaf3ada264a0ab699", recurring_debit_name="Animaux", is_valid_expense=true
-              Output 2: amount=12.50, category="Sorties", description="Burger King", recurring_debit_id="3b8bbbc3b4e98091ab8cf46e35a8be77", recurring_debit_name="Plaisir", is_valid_expense=true
+              Output 1: amount=34.99, category="Animaux", description="Croquettes", recurring_debit_id="3b8bbbc3b4e9807eaf3ada264a0ab699", recurring_debit_name="Animaux", is_valid_expense=true, is_transfer=false
+              Output 2: amount=12.50, category="Sorties", description="Burger King", recurring_debit_id="3b8bbbc3b4e98091ab8cf46e35a8be77", recurring_debit_name="Plaisir", is_valid_expense=true, is_transfer=false
             - Input: "Abo amazon"
-              Output: amount=75.00, category="Abonnement numérique", description="Abonnement Amazon Prime", recurring_debit_id="3b7bbbc3b4e980d4a616d87f61198ff9", recurring_debit_name="Abonnement Amazon", is_valid_expense=true
+              Output: amount=75.00, category="Abonnement numérique", description="Abonnement Amazon Prime", recurring_debit_id="3b7bbbc3b4e980d4a616d87f61198ff9", recurring_debit_name="Abonnement Amazon", is_valid_expense=true, is_transfer=true
             - Input: "Salut le bot"
-              Output: is_valid_expense=false, amount=0, category="", description="", recurring_debit_id="", recurring_debit_name=""
+              Output: is_valid_expense=false, amount=0, category="", description="", recurring_debit_id="", recurring_debit_name="", is_transfer=false
             """;
         
         var config = GetExpenseConfig(categoriesList, systemPrompt, "la dépense");
@@ -157,7 +157,7 @@ public class GenAiBudgetService : IGenAiBudgetService
                     ["description"] = new Schema { Type = Type.String, Description = "Une courte description / label" },
                     ["recurring_debit_id"] = new Schema { Type = Type.String, Description = $"L'id de {type} récurrente parmis le catalogue" },
                     ["recurring_debit_name"] = new Schema { Type = Type.String, Description = $"Le nom de {type} récurrente parmis le catalogue" },
-                    ["is_transfer"] = new Schema { Type = Type.Boolean, Description = "Vrai si chèque, virement ou espèces." },
+                    ["is_transfer"] = new Schema { Type = Type.Boolean, Description = "Vrai si dépense récurrente associée est un Virement ou si la dépense est faite par chèque, virement ou espèces." },
                     ["is_valid_expense"] = new Schema { Type = Type.Boolean, Description = "Vrai si le parsing a réussi." }
                 },
                 Required = new List<string> { "amount", "category", "description", "recurring_debit_id", "recurring_debit_name", "is_valid_expense" }
