@@ -35,8 +35,8 @@ public class BudgetNotifier : IBudgetNotifier
 
     private async Task<Result> NotifyUsersFromNewMessage(IEnumerable<long> userIds, UserRequestResponse response, CancellationToken cancellationToken)
     {
-        var inlinedButton = response.Button != null
-            ? new InlineKeyboardMarkup(InlineKeyboardButton.WithUrl(response.Button.Text, response.Button.Url))
+        var inlinedButton = response.Buttons != null
+            ? new InlineKeyboardMarkup(response.Buttons.Select(button => InlineKeyboardButton.WithUrl(button.Text, button.Url)))
             : null;
 
         var sendTasks = userIds.Select(userId =>

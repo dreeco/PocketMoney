@@ -1,3 +1,4 @@
+using Application.Budget;
 using Application.Helpers;
 using Domain.BudgetEntities;
 using Domain.Repositories;
@@ -8,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Notion.Client;
+using Telegram.Bot;
 using Xunit;
 
 namespace TelegramBot.Tests;
@@ -15,6 +17,7 @@ namespace TelegramBot.Tests;
 public class FunctionTest
 {
     IConfiguration Configuration;
+    private ILogger<UserRequestHandler> userRequestHandlerLogger => NullLogger<UserRequestHandler>.Instance;
     private ILogger<NotionDatasetExporter> notionDatasetExporterLogger => NullLogger<NotionDatasetExporter>.Instance;
     private ILogger<BudgetRepository> budgetRepositoryLogger => NullLogger<BudgetRepository>.Instance;
     private ILogger<GenAiBudgetService> genAiBudgetServiceLogger => NullLogger<GenAiBudgetService>.Instance;
@@ -115,6 +118,9 @@ public class FunctionTest
     [InlineData("voir situation", "RésuméSituation")]
     [InlineData("Où on en est ce mois-ci", "RésuméSituation")]
     [InlineData("Budgets mois", "RésuméSituation")]
+
+    [InlineData("Mets à jour les prélèvements automatiques", "SynchroniserDépensesRécurrentes")]
+    [InlineData("Synchronise les dépenses auto", "SynchroniserDépensesRécurrentes")]
     public async Task TestRouteAction(string message, string expectedAction)
     {
         var geminiParser2 = new GenAiBudgetService(genAiBudgetServiceLogger, geminiApiKey);
@@ -180,6 +186,28 @@ public class FunctionTest
         Assert.NotEmpty(createdIncome.Value.id);
     }
 
+    [Fact]
+    public async Task GetRecurrentDebitsWithNoExpenseForCurrentMonthTests()
+    {
+        var budgetRepository = new BudgetRepository(budgetRepositoryLogger, Configuration, TimeProvider.System);
+        var result = await budgetRepository.GetRecurrentDebitsWithNoExpenseForCurrentMonth(CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+
+    }
+    [Fact]
+    public async Task TestSynchronizeAutomaticDebits()
+    {
+        var budgetRepository = new BudgetRepository(budgetRepositoryLogger, Configuration, TimeProvider.System);
+        var genAiBudgetService = new GenAiBudgetService(genAiBudgetServiceLogger, geminiApiKey);
+        var budgetNotifier = new BudgetNotifier(new TelegramBotClient(Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN")));
+
+        var userRequestHandler = new UserRequestHandler(userRequestHandlerLogger, budgetRepository, genAiBudgetService, budgetNotifier);
+        var result = await userRequestHandler.ParseMessage("Synchronise les dépenses auto", 8662514156, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+
+    }
 
     //[Fact]
     //public async Task TestSendNotif() 

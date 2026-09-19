@@ -213,8 +213,8 @@ public class GenAiBudgetService : IGenAiBudgetService
             - Une dépense (SaisieDépense). C'est l'opération la plus courante reçue dans le système. Exemple: "12 euros chez Gifi", "64.41 voiture garage", "19.99 abonnement Deezer"
             - Un revenu (SaisieRevenu). Il y aura mention de "Salaire", "Remboursement", "Aides", "CAF"
             - Une demande de situation (RésuméSituation). Ce sera un message sans chiffre avec par exemple : "résumé", "situation", "mois courant", etc.
-
-            Tu dois donner l'une de ces 3 actions obligatoirement [SaisieDépense, SaisieRevenu, RésuméSituation] sinon le système ne pourra pas la traiter.
+            - Unde demande pour synchronizer / mettre à jour les dépenses récurrentes automatiques (SynchroniserDépensesRécurrentes). Ce sera un message du style : "Mets à jour les dépenses automatiques" ou "Synchronise les prélèvements".
+            Tu dois donner l'une de ces 4 actions obligatoirement [SaisieDépense, SaisieRevenu, RésuméSituation, SynchroniserDépensesRécurrentes    ] sinon le système ne pourra pas la traiter.
             """;
 
         var config = new GenerateContentConfig
@@ -233,7 +233,7 @@ public class GenAiBudgetService : IGenAiBudgetService
                     {
                         Type = Type.String,
                         Description = "Action à effectuer par le système",
-                        Enum = new List<string> { "SaisieDépense", "SaisieRevenu", "RésuméSituation" }
+                        Enum = new List<string> { "SaisieDépense", "SaisieRevenu", "RésuméSituation", "SynchroniserDépensesRécurrentes" }
                     }
                 },
                 Required = new List<string> { "action" }

@@ -47,15 +47,15 @@ public class UserRequestHandler : IUserRequestHandler
         //// Override transfer when false and recurring debit associated is made by transfer
         //expense.IsTransfer = expense.IsTransfer == false ? budgetLeftResult.Value.IsTransfer : expense.IsTransfer;
 
-        var result = await _repository.CreateExpense(expense, cancellationToken);
-        if (!result.IsSuccess)
+        var result = await _repository.CreateExpenses([expense], cancellationToken);
+        if (!result.IsSuccess || result.Value.FirstOrDefault() == null)
             return Result.Failure<UserRequestResponse>("Impossible to create expense: " + result.Error);
 
         var budgetLeftResult = await _repository.GetBudgetInformation(expense.RecurringDebitId, cancellationToken);
         if (!budgetLeftResult.IsSuccess)
             return Result.Failure<UserRequestResponse>("Impossible to fetch budget");
 
-        expense.PageUrl = result.Value.url;
+        expense.PageUrl = result.Value.First().url;
 
         var mean = expense.IsTransfer ? "virement" : "CB";
 
@@ -70,7 +70,7 @@ public class UserRequestHandler : IUserRequestHandler
 
         var button = new Button("🔗 Voir la dépense", expense.PageUrl);
 
-        return new UserRequestResponse(text, button);
+        return new UserRequestResponse(text, [button]);
     }
 
 
@@ -103,7 +103,7 @@ public class UserRequestHandler : IUserRequestHandler
 
         var button = new Button("🔗 Voir le revenu", income.PageUrl);
 
-        return new UserRequestResponse(text, button);
+        return new UserRequestResponse(text, [button]);
     }
 
     public async Task<Result<UserRequestResponse>> HandleSituationSummary(string userMessage, CancellationToken cancellationToken)
@@ -163,10 +163,44 @@ public class UserRequestHandler : IUserRequestHandler
 
                 return Result.Success();
 
+            case "SynchroniserDépensesRécurrentes":
+                var createdDebits = await HandleSyncRecurrentDebits(cancellationToken);
+
+                return await NotifyAll(_logger, userId, createdDebits, cancellationToken);
+
             default:
                 await _budgetNotifier.SendMessageToUniqueUser(userId, new UserRequestResponse($"⚠️ Je n'ai pas compris la demande."), cancellationToken);
                 return Result.Success();
         }
+    }
+
+    private async Task<Result<UserRequestResponse>> HandleSyncRecurrentDebits(CancellationToken cancellationToken)
+    {
+        var unsyncedRecurrentDebitsResult = await _repository.GetRecurrentDebitsWithNoExpenseForCurrentMonth(cancellationToken);
+        if (unsyncedRecurrentDebitsResult.IsFailure)
+            return Result.Failure<UserRequestResponse>(unsyncedRecurrentDebitsResult.Error);
+        
+        var unsyncedRecurrentDebits = unsyncedRecurrentDebitsResult.Value;
+        if (unsyncedRecurrentDebits.Count() == 0)
+            return Result.Success(new UserRequestResponse("Aucun débit récurrent à synchroniser"));
+
+        var expenses = unsyncedRecurrentDebits.Select(rd => new Expense() { 
+            Amount = rd.Amount, 
+            Category = rd.Category, 
+            Description = rd.Name, 
+            IsTransfer = rd.IsTransfer, 
+            IsValidExpense = true, 
+            RecurringDebitId = rd.Id, 
+            RecurringDebitName = rd.Name 
+        });
+        var response = await _repository.CreateExpenses(expenses, cancellationToken);
+        if (response.IsFailure)
+            return Result.Failure<UserRequestResponse>(response.Error);
+
+        var text = $@"{unsyncedRecurrentDebits.Count()} débits récurrents non enregistrés trouvés : 
+•   {String.Join("\n•   ", unsyncedRecurrentDebits.Select(urd => $"{urd.Name} ({urd.Amount}€) par {(urd.IsTransfer ? "🏦virement" : "💳CB")}"))}
+";
+        return new UserRequestResponse(text, response.Value.Select(e => new Button(e.name, e.url)));
     }
 
     private async Task<Result> NotifyAll(ILogger logger, long userId, Result<UserRequestResponse> userRequestResponseIncome, CancellationToken cancellationToken)

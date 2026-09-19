@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using Notion.Client;
 using System.Data;
 using System.Diagnostics;
+using System.Net;
 
 namespace Infrastructure.DataAccess;
 
@@ -75,58 +76,93 @@ public class BudgetRepository : IBudgetRepository
             new AccountSituation());
     }
 
-    public async Task<Result<ExpensePage>> CreateExpense(Expense expense, CancellationToken cancellationToken)
+    public async Task<Result<IEnumerable<RecurringDebitPage>>> GetRecurrentDebitsWithNoExpenseForCurrentMonth(CancellationToken cancellationToken)
+    {
+        var queryParameters = NotionHelper.GetParameters([
+            new FormulaFilter("Budget mois courant", @string: new TextFilter.Condition(equal: "⏳ En attente")),
+            new FormulaFilter("Date Débit Estimé", date: new DateFilter.Condition(onOrBefore: DateTime.Now.Date)),
+            new CheckboxFilter("Automatique", equal: true)
+            ]);
+        
+        var response = await QueryNotionBudgetPage(RecurringDebitsDataset, queryParameters, cancellationToken);
+
+        return Result.Success(response.Results
+            .Select(r => GetRecurringDebitFromPage(r as Page))
+            .Select(r => r.Value));
+    }
+
+    private Result<RecurringDebitPage> GetRecurringDebitFromPage(Page? page)
+    {
+        if (page == null)
+            return Result.Failure<RecurringDebitPage>("No billing month found.");
+
+        var name = NotionHelper.GetString(page.Properties["Name"]);
+        var amount = NotionHelper.GetDouble(page.Properties["Montant"]);
+        var category = NotionHelper.GetString(page.Properties["Catégorie"]);
+        var progressive = NotionHelper.GetBoolean(page.Properties["Progressif"]);
+        var currentState = NotionHelper.GetString(page.Properties["Budget mois courant"]);
+        var isTransfer = NotionHelper.GetBoolean(page.Properties["Virement"]);
+
+        var results = new Result[] { name, amount, category, progressive, currentState, isTransfer }.Where(r => r.IsFailure);
+        if (results.Any())
+            return Result.Failure<RecurringDebitPage>($"Errors: {String.Join(", ", results.Select(r => r.Error))}");
+
+        return new RecurringDebitPage(page.Id, name.Value, amount.Value, category.Value, progressive.Value, currentState.Value, isTransfer.Value);
+    }
+
+    public async Task<Result<IEnumerable<ExpensePage>>> CreateExpenses(IEnumerable<Expense> expenses, CancellationToken cancellationToken)
     {
         var billingMonthResult = await GetCurrentBillingMonth(cancellationToken);
         if (!billingMonthResult.IsSuccess)
-            return Result.Failure<ExpensePage>(billingMonthResult.Error);
+            return Result.Failure<IEnumerable<ExpensePage>>(billingMonthResult.Error);
 
-        var properties = new Dictionary<string, PropertyValue>
+        var createPageParameters = expenses.Select(expense =>
         {
-            ["Titre"] = new TitlePropertyValue()
+            var properties = new Dictionary<string, PropertyValue>
             {
-                Title = [new RichTextText() { Text = new Text { Content = expense.Description } }]
-            },
-            ["Mois"] = new RelationPropertyValue
-            {
-                Relation = [new ObjectId { Id = billingMonthResult.Value.Id }]
-            },
-            ["Date"] = new DatePropertyValue
-            {
-                Date = new Date() { Start = DateTimeOffset.UtcNow.Date, IncludeTime = false },
-            },
-            ["Montant"] = new NumberPropertyValue
-            {
-                Number = expense.Amount
-            },
-            ["Catégorie"] = new SelectPropertyValue
-            {
-                Select = new SelectOption { Name = expense.Category }
-            },
-            ["Virement"] = new CheckboxPropertyValue
-            {
-                Checkbox = expense.IsTransfer
-            },
-        };
-
-        if (!string.IsNullOrWhiteSpace(expense.RecurringDebitId))
-        {
-            properties["Dépenses récurrentes"] = new RelationPropertyValue
-            {
-                Relation = [new ObjectId { Id = expense.RecurringDebitId }]
+                ["Titre"] = new TitlePropertyValue()
+                {
+                    Title = [new RichTextText() { Text = new Text { Content = expense.Description } }]
+                },
+                ["Mois"] = new RelationPropertyValue
+                {
+                    Relation = [new ObjectId { Id = billingMonthResult.Value.Id }]
+                },
+                ["Date"] = new DatePropertyValue
+                {
+                    Date = new Date() { Start = DateTimeOffset.UtcNow.Date, IncludeTime = false },
+                },
+                ["Montant"] = new NumberPropertyValue
+                {
+                    Number = expense.Amount
+                },
+                ["Catégorie"] = new SelectPropertyValue
+                {
+                    Select = new SelectOption { Name = expense.Category }
+                },
+                ["Virement"] = new CheckboxPropertyValue
+                {
+                    Checkbox = expense.IsTransfer
+                },
             };
-        }
 
-        var createPageParameters = new PagesCreateParameters
-        {
-            Parent = new DatabaseParentInput { DatabaseId = DebitsDataset },
-            Properties = properties
-        };
+            if (!string.IsNullOrWhiteSpace(expense.RecurringDebitId))
+            {
+                properties["Dépenses récurrentes"] = new RelationPropertyValue
+                {
+                    Relation = [new ObjectId { Id = expense.RecurringDebitId }]
+                };
+            }
 
-        var page = await CreateNotionPage(createPageParameters, cancellationToken);
-        if (page == null)
-            return Result.Failure<ExpensePage>("Could not create Notion page");
-        return Result.Success(new ExpensePage(page.Id, page.Url));
+            return new PagesCreateParameters
+            {
+                Parent = new DatabaseParentInput { DatabaseId = DebitsDataset },
+                Properties = properties
+            };
+        });
+
+        var pages = await BatchCreateNotionPages(createPageParameters, cancellationToken);
+        return Result.Success(pages.Select(page => new ExpensePage(page.Id, page.Url, NotionHelper.GetString(page.Properties["Titre"]).Value)));
     }
 
 
@@ -183,7 +219,7 @@ public class BudgetRepository : IBudgetRepository
         if (page == null)
             return Result.Failure<ExpensePage>("Could not create Notion page");
 
-        return Result.Success(new ExpensePage(page.Id, page.Url));
+        return Result.Success(new ExpensePage(page.Id, page.Url, expense.Description));
     }
 
     public async Task<Result<string>> FetchAllBillingMonths(CancellationToken cancellationToken)
@@ -203,6 +239,7 @@ public class BudgetRepository : IBudgetRepository
 
         return result;
     }
+
 
     public async Task<Result<string>> FetchAllRecurringCredits(CancellationToken cancellationToken)
     {
@@ -253,14 +290,54 @@ public class BudgetRepository : IBudgetRepository
     {
         var stopWatch = GetStartedStopWatch();
 
-        try
+        var maxRetries = 4;
+
+        for (int attempt = 1; attempt <= maxRetries; attempt++)
         {
-            return await Client.Pages.CreateAsync(createPageParameters, cancellationToken);
+            var loopStopWatch = GetStartedStopWatch();
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                var page = await Client.Pages.CreateAsync(createPageParameters, cancellationToken);
+                _logger.LogInformation("CreateNotionPage successful in {dataset} for {elapsedTime}ms after {attempt} attempts", createPageParameters.Parent, stopWatch.ElapsedMilliseconds, attempt);
+                return page;
+            }
+            catch (NotionApiException ex) when (ex.StatusCode == HttpStatusCode.TooManyRequests)
+            {
+                _logger.LogError(ex, "CreateNotionPage could not complete in {dataset} for {elapsedTime}ms after {attempt} attempts", createPageParameters.Parent, stopWatch.ElapsedMilliseconds, attempt);
+
+                if (attempt == maxRetries) throw;
+
+                // Backoff exponentiel : 1s, 2s, 4s... + jitter léger
+                var delayMs = (int)(Math.Pow(2, attempt - 1) * 1000) + Random.Shared.Next(50, 250);
+                await Task.Delay(delayMs);
+            }
         }
-        finally
+
+        throw new Exception("Should not fall under this exception");
+    }
+
+    async Task<IEnumerable<Page>> BatchCreateNotionPages(IEnumerable<PagesCreateParameters> itemsToInsert, CancellationToken cancellationToken)
+    {
+        using var semaphore = new SemaphoreSlim(3); 
+
+        var tasks = itemsToInsert.Select(async item =>
         {
-            _logger.LogInformation("CreateNotionPage {dataset} for {elapsedTime}ms", createPageParameters.Parent, stopWatch.ElapsedMilliseconds);
-        }
+            await semaphore.WaitAsync();
+            try
+            {
+                return await CreateNotionPage(item, cancellationToken);
+            }
+            finally
+            {
+                // Léger délai pour respecter le rate-limiting
+                await Task.Delay(350);
+                semaphore.Release();
+            }
+        });
+
+        var results = await Task.WhenAll(tasks);
+        return results;
     }
 
     private async Task<Page> RetrieveSinglePage(string pageId, CancellationToken cancellationToken)
