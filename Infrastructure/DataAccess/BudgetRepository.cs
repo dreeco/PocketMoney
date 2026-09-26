@@ -110,11 +110,11 @@ public class BudgetRepository : IBudgetRepository
         return new RecurringDebitPage(page.Id, name.Value, amount.Value, category.Value, progressive.Value, currentState.Value, isTransfer.Value);
     }
 
-    public async Task<Result<IEnumerable<ExpensePage>>> CreateExpenses(IEnumerable<Expense> expenses, CancellationToken cancellationToken)
+    public async Task<Result<IEnumerable<BasePage>>> CreateExpenses(IEnumerable<Expense> expenses, CancellationToken cancellationToken)
     {
         var billingMonthResult = await GetCurrentBillingMonth(cancellationToken);
         if (!billingMonthResult.IsSuccess)
-            return Result.Failure<IEnumerable<ExpensePage>>(billingMonthResult.Error);
+            return Result.Failure<IEnumerable<BasePage>>(billingMonthResult.Error);
 
         var createPageParameters = expenses.Select(expense =>
         {
@@ -161,16 +161,16 @@ public class BudgetRepository : IBudgetRepository
             };
         });
 
-        var pages = await BatchCreateNotionPages(createPageParameters, cancellationToken);
-        return Result.Success(pages.Select(page => new ExpensePage(page.Id, page.Url, NotionHelper.GetString(page.Properties["Titre"]).Value)));
+        var pages = await NotionHelper.BatchCreateNotionPages(Client, _logger, createPageParameters, cancellationToken);
+        return Result.Success(pages.Select(page => new BasePage(page.Id, page.Url, NotionHelper.GetString(page.Properties["Titre"]).Value)));
     }
 
 
-    public async Task<Result<ExpensePage>> CreateIncome(Expense expense, CancellationToken cancellationToken)
+    public async Task<Result<BasePage>> CreateIncome(Expense expense, CancellationToken cancellationToken)
     {
         var billingMonthResult = await GetCurrentBillingMonth(cancellationToken);
         if (!billingMonthResult.IsSuccess)
-            return Result.Failure<ExpensePage>(billingMonthResult.Error);
+            return Result.Failure<BasePage>(billingMonthResult.Error);
 
         var properties = new Dictionary<string, PropertyValue>
         {
@@ -215,11 +215,11 @@ public class BudgetRepository : IBudgetRepository
             Properties = properties
         };
         
-        var  page = await CreateNotionPage(createPageParameters, cancellationToken);
+        var  page = await NotionHelper.CreateNotionPage(Client, _logger, createPageParameters, cancellationToken);
         if (page == null)
-            return Result.Failure<ExpensePage>("Could not create Notion page");
+            return Result.Failure<BasePage>("Could not create Notion page");
 
-        return Result.Success(new ExpensePage(page.Id, page.Url, expense.Description));
+        return Result.Success(new BasePage(page.Id, page.Url, expense.Description));
     }
 
     public async Task<Result<string>> FetchAllBillingMonths(CancellationToken cancellationToken)
@@ -284,60 +284,6 @@ public class BudgetRepository : IBudgetRepository
         var stopWatch = new Stopwatch();
         stopWatch.Start();
         return stopWatch;
-    }
-
-    private async Task<Page> CreateNotionPage(PagesCreateParameters createPageParameters, CancellationToken cancellationToken)
-    {
-        var stopWatch = GetStartedStopWatch();
-
-        var maxRetries = 4;
-
-        for (int attempt = 1; attempt <= maxRetries; attempt++)
-        {
-            var loopStopWatch = GetStartedStopWatch();
-            cancellationToken.ThrowIfCancellationRequested();
-            try
-            {
-                var page = await Client.Pages.CreateAsync(createPageParameters, cancellationToken);
-                _logger.LogInformation("CreateNotionPage successful in {dataset} for {elapsedTime}ms after {attempt} attempts", createPageParameters.Parent, stopWatch.ElapsedMilliseconds, attempt);
-                return page;
-            }
-            catch (NotionApiException ex) when (ex.StatusCode == HttpStatusCode.TooManyRequests)
-            {
-                _logger.LogError(ex, "CreateNotionPage could not complete in {dataset} for {elapsedTime}ms after {attempt} attempts", createPageParameters.Parent, stopWatch.ElapsedMilliseconds, attempt);
-
-                if (attempt == maxRetries) throw;
-
-                // Backoff exponentiel : 1s, 2s, 4s... + jitter léger
-                var delayMs = (int)(Math.Pow(2, attempt - 1) * 1000) + Random.Shared.Next(50, 250);
-                await Task.Delay(delayMs);
-            }
-        }
-
-        throw new Exception("Should not fall under this exception");
-    }
-
-    async Task<IEnumerable<Page>> BatchCreateNotionPages(IEnumerable<PagesCreateParameters> itemsToInsert, CancellationToken cancellationToken)
-    {
-        using var semaphore = new SemaphoreSlim(3); 
-
-        var tasks = itemsToInsert.Select(async item =>
-        {
-            await semaphore.WaitAsync();
-            try
-            {
-                return await CreateNotionPage(item, cancellationToken);
-            }
-            finally
-            {
-                // Léger délai pour respecter le rate-limiting
-                await Task.Delay(350);
-                semaphore.Release();
-            }
-        });
-
-        var results = await Task.WhenAll(tasks);
-        return results;
     }
 
     private async Task<Page> RetrieveSinglePage(string pageId, CancellationToken cancellationToken)

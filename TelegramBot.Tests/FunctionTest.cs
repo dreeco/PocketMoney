@@ -21,6 +21,7 @@ public class FunctionTest
     private ILogger<NotionDatasetExporter> notionDatasetExporterLogger => NullLogger<NotionDatasetExporter>.Instance;
     private ILogger<BudgetRepository> budgetRepositoryLogger => NullLogger<BudgetRepository>.Instance;
     private ILogger<GenAiBudgetService> genAiBudgetServiceLogger => NullLogger<GenAiBudgetService>.Instance;
+    private ILogger<PocketMoneyRepository> pocketMoneyRepositoryLogger => NullLogger<PocketMoneyRepository>.Instance;
     private string geminiApiKey;
 
     public FunctionTest()
@@ -195,6 +196,7 @@ public class FunctionTest
         Assert.True(result.IsSuccess);
 
     }
+
     [Fact]
     public async Task TestSynchronizeAutomaticDebits()
     {
@@ -209,6 +211,14 @@ public class FunctionTest
 
     }
 
+    [Fact]
+    public async Task TestSynchronizeCalendar()
+    {
+        var repo = new PocketMoneyRepository(Configuration, pocketMoneyRepositoryLogger);
+        var result = await repo.SynchronizeCalendar(CancellationToken.None);
+        Assert.False(result.IsFailure);
+        
+    }
     //[Fact]
     //public async Task TestSendNotif() 
     //{

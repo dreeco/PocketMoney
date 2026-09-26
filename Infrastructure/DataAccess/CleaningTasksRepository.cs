@@ -121,7 +121,7 @@ public class CleaningTasksRepository : ICleaningTasksRepository
         if (!toGive.IsSuccess || !waitingForValidation.IsSuccess)
             return Result.Failure<Balance>($"Errors: {(toGive.IsSuccess ? "" : toGive.Error)} {(waitingForValidation.IsSuccess ? "" : waitingForValidation.Error)}");
 
-        return new Balance(id, AmountToPoints(toGive), AmountToPoints(waitingForValidation));
+        return new Balance(member.name, id, AmountToPoints(toGive), AmountToPoints(waitingForValidation));
     }
 
     private static int AmountToPoints(Result<double> amount)

@@ -5,8 +5,8 @@ namespace Domain.Repositories;
 
 public interface IBudgetRepository
 {
-    Task<Result<IEnumerable<ExpensePage>>> CreateExpenses(IEnumerable<Expense> expenses, CancellationToken cancellationToken);
-    Task<Result<ExpensePage>> CreateIncome(Expense expense, CancellationToken cancellationToken);
+    Task<Result<IEnumerable<BasePage>>> CreateExpenses(IEnumerable<Expense> expenses, CancellationToken cancellationToken);
+    Task<Result<BasePage>> CreateIncome(Expense expense, CancellationToken cancellationToken);
     Task<Result<BillingMonth>> GetCurrentBillingMonth(CancellationToken cancellationToken);
     Task<Result<IEnumerable<RecurringDebitPage>>> GetRecurrentDebitsWithNoExpenseForCurrentMonth(CancellationToken cancellationToken);
     Task<Result<BudgetInformation>> GetBudgetInformation(string recurringDebitId, CancellationToken cancellationToken);
