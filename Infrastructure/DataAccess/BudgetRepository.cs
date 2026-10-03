@@ -202,6 +202,10 @@ public class BudgetRepository : IBudgetRepository
             {
                 Checkbox = expense.IsTransfer
             },
+            ["CB"] = new SelectPropertyValue
+            {
+                Select = new SelectOption { Name = expense.CBHolder }
+            },
 
         };
 

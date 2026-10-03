@@ -47,7 +47,7 @@ public class UserRequestHandler : IUserRequestHandler
                 return await NotifyAll(_logger, userId, userRequestResponse, cancellationToken);
 
             case "SaisieRevenu":
-                var userRequestResponseIncome = await HandleNewIncome(_logger, userMessage.Text, cancellationToken);
+                var userRequestResponseIncome = await HandleNewIncome(_logger, userMessage, cancellationToken);
                 if (userRequestResponseIncome.IsFailure)
                     return Result.Failure(userRequestResponseIncome.Error);
 
@@ -125,18 +125,19 @@ public class UserRequestHandler : IUserRequestHandler
     }
 
 
-    private async Task<Result<UserRequestResponse>> HandleNewIncome(ILogger logger, string userMessage, CancellationToken cancellationToken)
+    private async Task<Result<UserRequestResponse>> HandleNewIncome(ILogger logger, UserMessage userMessage, CancellationToken cancellationToken)
     {
         var recurringCredits = await _repository.FetchAllRecurringCredits(cancellationToken);
         if (recurringCredits.IsFailure)
             return Result.Failure<UserRequestResponse>(recurringCredits.Error);
 
-        var parsedIncome = await _genAiBudgetService.ParseIncomeAsync(userMessage, recurringCredits.Value, cancellationToken);
+        var parsedIncome = await _genAiBudgetService.ParseIncomeAsync(userMessage.Text, recurringCredits.Value, cancellationToken);
 
         if (parsedIncome.IsFailure)
             return new UserRequestResponse("⚠️ Je n'ai pas pu identifier le montant ou le revenu. Exemple : *'CAF 437€'*");
 
         var income = parsedIncome.Value;
+        income.CBHolder = userMessage.User.Name;
         var incomeResult = await _repository.CreateIncome(income, cancellationToken);
         if (incomeResult.IsFailure)
             return Result.Failure<UserRequestResponse>(incomeResult.Error);

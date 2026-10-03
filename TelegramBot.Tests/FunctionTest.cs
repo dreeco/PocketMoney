@@ -23,6 +23,7 @@ public class FunctionTest
     private ILogger<GenAiBudgetService> genAiBudgetServiceLogger => NullLogger<GenAiBudgetService>.Instance;
     private ILogger<PocketMoneyRepository> pocketMoneyRepositoryLogger => NullLogger<PocketMoneyRepository>.Instance;
     private string geminiApiKey;
+    private string telegramBotToken;
 
     public FunctionTest()
     {
@@ -42,6 +43,7 @@ public class FunctionTest
         }
 
         geminiApiKey = Environment.GetEnvironmentVariable("GEMINI_API_KEY") ?? throw new Exception("Could not find gemini api key");
+        telegramBotToken = Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN") ?? throw new Exception("Could not find TELEGRAM_BOT_TOKEN");
     }
 
     //[Fact]
@@ -202,7 +204,7 @@ public class FunctionTest
     {
         var budgetRepository = new BudgetRepository(budgetRepositoryLogger, Configuration, TimeProvider.System);
         var genAiBudgetService = new GenAiBudgetService(genAiBudgetServiceLogger, geminiApiKey);
-        var budgetNotifier = new BudgetNotifier(new TelegramBotClient(Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN")));
+        var budgetNotifier = new BudgetNotifier(new TelegramBotClient(telegramBotToken));
 
         var userRequestHandler = new UserRequestHandler(userRequestHandlerLogger, budgetRepository, genAiBudgetService, budgetNotifier);
         var userMessage = new UserMessage("Synchronise les dépenses auto", new Domain.PocketMoneyEntities.User("Adrien", 8662514156));
@@ -216,10 +218,24 @@ public class FunctionTest
     {
         var budgetRepository = new BudgetRepository(budgetRepositoryLogger, Configuration, TimeProvider.System);
         var genAiBudgetService = new GenAiBudgetService(genAiBudgetServiceLogger, geminiApiKey);
-        var budgetNotifier = new BudgetNotifier(new TelegramBotClient(Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN")));
+        var budgetNotifier = new BudgetNotifier(new TelegramBotClient(telegramBotToken));
 
         var userRequestHandler = new UserRequestHandler(userRequestHandlerLogger, budgetRepository, genAiBudgetService, budgetNotifier);
         var userMessage = new UserMessage("12.5 legos vache", new Domain.PocketMoneyEntities.User("Adrien", 8662514156));
+        var result = await userRequestHandler.ParseMessage(userMessage, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+    }
+
+    [Fact]
+    public async Task TestFullCreateIncome()
+    {
+        var budgetRepository = new BudgetRepository(budgetRepositoryLogger, Configuration, TimeProvider.System);
+        var genAiBudgetService = new GenAiBudgetService(genAiBudgetServiceLogger, geminiApiKey);
+        var budgetNotifier = new BudgetNotifier(new TelegramBotClient(telegramBotToken));
+
+        var userRequestHandler = new UserRequestHandler(userRequestHandlerLogger, budgetRepository, genAiBudgetService, budgetNotifier);
+        var userMessage = new UserMessage("reçcu remboursement Julien 12.5", new Domain.PocketMoneyEntities.User("Adrien", 8662514156));
         var result = await userRequestHandler.ParseMessage(userMessage, CancellationToken.None);
 
         Assert.True(result.IsSuccess);
