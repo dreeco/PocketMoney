@@ -205,10 +205,24 @@ public class FunctionTest
         var budgetNotifier = new BudgetNotifier(new TelegramBotClient(Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN")));
 
         var userRequestHandler = new UserRequestHandler(userRequestHandlerLogger, budgetRepository, genAiBudgetService, budgetNotifier);
-        var result = await userRequestHandler.ParseMessage("Synchronise les dépenses auto", 8662514156, CancellationToken.None);
+        var userMessage = new UserMessage("Synchronise les dépenses auto", new Domain.PocketMoneyEntities.User("Adrien", 8662514156));
+        var result = await userRequestHandler.ParseMessage(userMessage, CancellationToken.None);
 
         Assert.True(result.IsSuccess);
+    }
 
+    [Fact]
+    public async Task TestCreateExpense()
+    {
+        var budgetRepository = new BudgetRepository(budgetRepositoryLogger, Configuration, TimeProvider.System);
+        var genAiBudgetService = new GenAiBudgetService(genAiBudgetServiceLogger, geminiApiKey);
+        var budgetNotifier = new BudgetNotifier(new TelegramBotClient(Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN")));
+
+        var userRequestHandler = new UserRequestHandler(userRequestHandlerLogger, budgetRepository, genAiBudgetService, budgetNotifier);
+        var userMessage = new UserMessage("12.5 legos vache", new Domain.PocketMoneyEntities.User("Adrien", 8662514156));
+        var result = await userRequestHandler.ParseMessage(userMessage, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
     }
 
     [Fact]

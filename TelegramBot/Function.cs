@@ -2,6 +2,7 @@ using Amazon.Lambda.APIGatewayEvents;
 using Amazon.Lambda.Core;
 using Application.Budget;
 using CSharpFunctionalExtensions;
+using Domain.PocketMoneyEntities;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using System.Net;
@@ -15,7 +16,7 @@ namespace TelegramBot;
 public class TelegramFunction
 {
     private readonly IServiceProvider _serviceProvider;
-    private readonly List<long> _allowedUserIds;
+    private readonly List<User> _allowedUserIds;
 
     public TelegramFunction() : this(new Startup().ConfigureServices()) { }
 
@@ -23,12 +24,7 @@ public class TelegramFunction
     {
         _serviceProvider = serviceProvider;
 
-        // Récupérer les IDs autorisés depuis les variables d'environnement (ex: "123456,789012")
-        var envIds = Environment.GetEnvironmentVariable("ALLOWED_USER_IDS") ?? "";
-        _allowedUserIds = envIds.Split(',', StringSplitOptions.RemoveEmptyEntries)
-                                .Select(long.Parse)
-                                .ToList();
-
+        _allowedUserIds = UserHelper.GetAllowedUsers();
     }
 
     public async Task<APIGatewayHttpApiV2ProxyResponse> FunctionHandler(
@@ -66,7 +62,8 @@ public class TelegramFunction
             return new APIGatewayHttpApiV2ProxyResponse { StatusCode = (int)HttpStatusCode.NoContent, Body = "No text" };
 
         // 1. Sécurité : Vérifier que l'expéditeur est autorisé
-        if (!_allowedUserIds.Contains(message.From.Id))
+        var user = _allowedUserIds.FirstOrDefault(u => u.Id == message.From.Id);
+        if (user is null)
         {
             externalLogger.LogWarning($"Unauthorized sender: {message.From.Id} ({message.From.Username})");
             return new APIGatewayHttpApiV2ProxyResponse { StatusCode = (int)HttpStatusCode.Forbidden, Body = "Unauthorized" };
@@ -76,7 +73,7 @@ public class TelegramFunction
         externalLogger.LogInformation($"Processing message: '{message.Text}' from {message.From.Id}");
 
         var userRequestHandler = _serviceProvider.GetRequiredService<IUserRequestHandler>();
-        var result = await userRequestHandler.ParseMessage(message.Text, message.From.Id, cancellationToken);
+        var result = await userRequestHandler.ParseMessage(new UserMessage(message.Text, user), cancellationToken);
         if (result.IsFailure)
         {
             context.Logger.LogError("Failed on " + result.Error);

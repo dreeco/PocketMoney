@@ -27,4 +27,8 @@ public class Expense
 
     [JsonPropertyName("page")]
     public string PageUrl { get; set; } = string.Empty;
+
+    [JsonPropertyName("CB Holder")]
+    public string CBHolder { get; set; } = string.Empty;
+
 }

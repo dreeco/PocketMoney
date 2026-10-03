@@ -1,5 +1,6 @@
 ﻿using CSharpFunctionalExtensions;
 using Domain.BudgetEntities;
+using Domain.PocketMoneyEntities;
 using Domain.Services;
 using Telegram.Bot;
 using Telegram.Bot.Types.Enums;
@@ -10,21 +11,18 @@ namespace TelegramBot;
 public class BudgetNotifier : IBudgetNotifier
 {
     private ITelegramBotClient Bot { get; }
-    private readonly List<long> _allowedUserIds;
+    private readonly List<User> _allowedUserIds;
 
     public BudgetNotifier(ITelegramBotClient boClient)
     {
         Bot = boClient;
 
-        var envIds = Environment.GetEnvironmentVariable("ALLOWED_USER_IDS") ?? throw new Exception("Could not find allowed user ids");
-        _allowedUserIds = envIds.Split(',', StringSplitOptions.RemoveEmptyEntries)
-                                .Select(long.Parse)
-                                .ToList();
+        _allowedUserIds = UserHelper.GetAllowedUsers();
     }
 
     public async Task<Result> NotifyAllBudgetUsersFromNewMessage(UserRequestResponse response, CancellationToken cancellationToken)
     {
-        return await NotifyUsersFromNewMessage(_allowedUserIds, response, cancellationToken);
+        return await NotifyUsersFromNewMessage(_allowedUserIds.Select(u => u.Id), response, cancellationToken);
     }
 
 

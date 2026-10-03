@@ -133,8 +133,7 @@ public class TelegramFunctionMockedTests
 
         _userRequestHandlerMock
             .Setup(x => x.ParseMessage(
-                "12 euros Gifi",
-                authorizedUserId,
+                It.Is<UserMessage>(mbox => mbox.Text == "12 euros Gifi"),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(Result.Success()); // Adapte selon ton objet Result
 
@@ -153,8 +152,7 @@ public class TelegramFunctionMockedTests
 
         // Vérifie que ton service métier a bien été appelé 1 seule fois avec les bonnes valeurs
         _userRequestHandlerMock.Verify(x => x.ParseMessage(
-            "12 euros Gifi",
-            authorizedUserId,
+            It.Is<UserMessage>(m => m.Text == "12 euros Gifi"),
             It.IsAny<CancellationToken>()), Times.Once);
     }
 }

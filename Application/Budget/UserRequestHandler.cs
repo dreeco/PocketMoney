@@ -1,14 +1,16 @@
 ﻿using CSharpFunctionalExtensions;
 using Domain.BudgetEntities;
+using Domain.PocketMoneyEntities;
 using Domain.Repositories;
 using Domain.Services;
 using Microsoft.Extensions.Logging;
 
 namespace Application.Budget;
 
+public record UserMessage(string Text, User User);
 public interface IUserRequestHandler
 {
-    Task<Result> ParseMessage(string userMessage, long userId, CancellationToken cancellationToken);
+    Task<Result> ParseMessage(UserMessage message, CancellationToken cancellationToken);
 }
 
 public class UserRequestHandler : IUserRequestHandler
@@ -26,18 +28,67 @@ public class UserRequestHandler : IUserRequestHandler
         _budgetNotifier = budgetNotifier;
     }
 
-    public async Task<Result<UserRequestResponse>> HandleNewExpense(ILogger logger, string userMessage, CancellationToken cancellationToken)
+    public async Task<Result> ParseMessage(UserMessage userMessage, CancellationToken cancellationToken)
+    {
+        var actionResult = await _genAiBudgetService.ParseRouteFromMessage(userMessage.Text, cancellationToken);
+
+        var userId = userMessage.User.Id;
+
+        if (actionResult.IsFailure)
+            return Result.Failure(actionResult.Error);
+
+        switch (actionResult.Value.Action)
+        {
+            case "SaisieDépense":
+                var userRequestResponse = await HandleNewExpense(_logger, userMessage, cancellationToken);
+                if (userRequestResponse.IsFailure)
+                    return Result.Failure(userRequestResponse.Error);
+
+                return await NotifyAll(_logger, userId, userRequestResponse, cancellationToken);
+
+            case "SaisieRevenu":
+                var userRequestResponseIncome = await HandleNewIncome(_logger, userMessage.Text, cancellationToken);
+                if (userRequestResponseIncome.IsFailure)
+                    return Result.Failure(userRequestResponseIncome.Error);
+
+                return await NotifyAll(_logger, userId, userRequestResponseIncome, cancellationToken);
+
+            case "RésuméSituation":
+                var responseSummary = await HandleSituationSummary(userMessage.Text, cancellationToken);
+                if (responseSummary.IsFailure)
+                    return Result.Failure(responseSummary.Error);
+
+                var result = await _budgetNotifier.SendMessageToUniqueUser(userId, responseSummary.Value, cancellationToken);
+                if (result.IsFailure)
+                    _logger.LogError(result.Error);
+
+                return Result.Success();
+
+            case "SynchroniserDépensesRécurrentes":
+                var createdDebits = await HandleSyncRecurrentDebits(cancellationToken);
+
+                return await NotifyAll(_logger, userId, createdDebits, cancellationToken);
+
+            default:
+                await _budgetNotifier.SendMessageToUniqueUser(userId, new UserRequestResponse($"⚠️ Je n'ai pas compris la demande."), cancellationToken);
+                return Result.Success();
+        }
+    }
+
+    private async Task<Result<UserRequestResponse>> HandleNewExpense(ILogger logger, UserMessage userMessage, CancellationToken cancellationToken)
     {
         var recurringDebits = await _repository.FetchAllRecurringDebits(cancellationToken);
         if (recurringDebits.IsFailure)
             return Result.Failure<UserRequestResponse>(recurringDebits.Error);
 
-        var parsedExpense = await _genAiBudgetService.ParseExpenseAsync(userMessage, recurringDebits.Value, cancellationToken);
+        var parsedExpense = await _genAiBudgetService.ParseExpenseAsync(userMessage.Text, recurringDebits.Value, cancellationToken);
 
         if (!parsedExpense.IsSuccess)
             return new UserRequestResponse("⚠️ Je n'ai pas pu identifier le montant ou la dépense. Exemple : *'Courses carrefour 35€'*");
 
         var expense = parsedExpense.Value;
+
+        expense.CBHolder = userMessage.User.Name;
 
         logger
             .LogInformation("Creating Notion expense: Amount={Amount}, Description={Description}, Category={Category}, RecurringDebitId={RecurringDebitId}, RecurringDebitName={RecurringDebitName}, IsTransfer={IsTransfer}",
@@ -74,7 +125,7 @@ public class UserRequestHandler : IUserRequestHandler
     }
 
 
-    public async Task<Result<UserRequestResponse>> HandleNewIncome(ILogger logger, string userMessage, CancellationToken cancellationToken)
+    private async Task<Result<UserRequestResponse>> HandleNewIncome(ILogger logger, string userMessage, CancellationToken cancellationToken)
     {
         var recurringCredits = await _repository.FetchAllRecurringCredits(cancellationToken);
         if (recurringCredits.IsFailure)
@@ -106,7 +157,7 @@ public class UserRequestHandler : IUserRequestHandler
         return new UserRequestResponse(text, [button]);
     }
 
-    public async Task<Result<UserRequestResponse>> HandleSituationSummary(string userMessage, CancellationToken cancellationToken)
+    private async Task<Result<UserRequestResponse>> HandleSituationSummary(string userMessage, CancellationToken cancellationToken)
     {
         // 1. Lancer les deux opérations en parallèle
         var recurringDebitsTask = _repository.FetchAllRecurringDebits(cancellationToken);
@@ -128,50 +179,6 @@ public class UserRequestHandler : IUserRequestHandler
             return Result.Failure<UserRequestResponse>(situation.Error);
 
         return new UserRequestResponse(situation.Value.Summary);
-    }
-
-    public async Task<Result> ParseMessage(string userMessage, long userId, CancellationToken cancellationToken)
-    {
-        var actionResult = await _genAiBudgetService.ParseRouteFromMessage(userMessage, cancellationToken);
-        if (actionResult.IsFailure)
-            return Result.Failure(actionResult.Error);
-
-        switch (actionResult.Value.Action)
-        {
-            case "SaisieDépense":
-                var userRequestResponse = await HandleNewExpense(_logger, userMessage, cancellationToken);
-                if (userRequestResponse.IsFailure)
-                    return Result.Failure(userRequestResponse.Error);
-
-                return await NotifyAll(_logger, userId, userRequestResponse, cancellationToken);
-            
-            case "SaisieRevenu":
-                var userRequestResponseIncome = await HandleNewIncome(_logger, userMessage, cancellationToken);
-                if (userRequestResponseIncome.IsFailure)
-                    return Result.Failure(userRequestResponseIncome.Error);
-                
-                return await NotifyAll(_logger, userId, userRequestResponseIncome, cancellationToken);
-            
-            case "RésuméSituation":
-                var responseSummary = await HandleSituationSummary(userMessage, cancellationToken);
-                if (responseSummary.IsFailure)
-                    return Result.Failure(responseSummary.Error);
-
-                var result = await _budgetNotifier.SendMessageToUniqueUser(userId, responseSummary.Value, cancellationToken);
-                if (result.IsFailure)
-                    _logger.LogError(result.Error);
-
-                return Result.Success();
-
-            case "SynchroniserDépensesRécurrentes":
-                var createdDebits = await HandleSyncRecurrentDebits(cancellationToken);
-
-                return await NotifyAll(_logger, userId, createdDebits, cancellationToken);
-
-            default:
-                await _budgetNotifier.SendMessageToUniqueUser(userId, new UserRequestResponse($"⚠️ Je n'ai pas compris la demande."), cancellationToken);
-                return Result.Success();
-        }
     }
 
     private async Task<Result<UserRequestResponse>> HandleSyncRecurrentDebits(CancellationToken cancellationToken)
