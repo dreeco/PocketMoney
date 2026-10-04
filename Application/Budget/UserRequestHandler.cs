@@ -221,14 +221,6 @@ public class UserRequestHandler : IUserRequestHandler
 
 
         var situation = currentBillingMonthResult.Value.Situation;
-        var MoisEnCours = currentBillingMonthResult.Value.Name;
-        var SoldeVisibleCic = situation.BankVisible;
-        var TotalEnCoursCartes = situation.BankTotalCards;
-        var EnCoursCarteAdrien = situation.BankAdrienCard;
-        var EnCoursCarteJustine = situation.BankJustineCard;
-        var TotalDepensesNonPointees = awaitingExpensesResult.Value.Sum(d => d.Amount);
-        var NbDepensesNonPointees = awaitingExpensesResult.Value.Count();
-        var DepensesAVenir = awaitingExpensesResult.Value.Sum(e => e.Amount);
 
         var budgetsDépassés = recurrentDebitsResult.Value.Where(r => r.CurrentState.Contains("Dépassé", StringComparison.InvariantCultureIgnoreCase));
         var sommeBudgetDépassés = budgetsDépassés.Sum(b =>
@@ -240,39 +232,69 @@ public class UserRequestHandler : IUserRequestHandler
         });
 
 
-        double TotalDepenseMois = situation.Spent, TotalPrevuMois = recurrentDebitsResult.Value.Sum(r => r.Amount), ResteFinMois = situation.ExpectedEndOfMonth;
+        var TotalDepenseMois = situation.Spent + recurrentDebitsResult.Value.Where(r => r.CurrentState.Contains("En attente", StringComparison.InvariantCultureIgnoreCase)).Sum(d => d.Amount);
+
+        //        string messageTelegram = $@"
+        //📊 *Résumé Budget {currentBillingMonthResult.Value.Name}*
+
+        //🏦 *État des comptes*
+        //• Solde visible CIC : *{situation.BankVisible:F2} €*
+        //• Encours Cartes : *{situation.BankTotalCards:F2} €*
+        //  ├ 👱‍ Adrien : {situation.BankAdrienCard:F2} €
+        //  └ 👩 Justine : {situation.BankJustineCard:F2} €
+
+        //⏳ *Dépenses en attente & à venir*
+        //• Dépenses pas visibles CIC : *{awaitingExpensesResult.Value.Sum(d => d.Amount):F2} €*
+        //  ├ 👱‍ Adrien : {awaitingExpensesResult.Value.Where(d => d.CBHolder == "Adrien").Sum(d => d.Amount):F2} € {awaitingExpensesResult.Value.Count(d => d.CBHolder == "Adrien")} transactions
+        //**>•{string.Join(@"
+        //>•", awaitingExpensesResult.Value.Where(d => d.CBHolder == "Adrien").Select(d => $"{d.Description} - {d.Amount:F2} €"))}
+        //  ├ 👩 Justine : {awaitingExpensesResult.Value.Where(d => d.CBHolder == "Justine").Sum(d => d.Amount):F2} € {awaitingExpensesResult.Value.Count(d => d.CBHolder == "Justine")} transactions
+        //  └ Autres : {awaitingExpensesResult.Value.Where(d => d.CBHolder == string.Empty).Sum(d => d.Amount):F2} € {awaitingExpensesResult.Value.Count(d => d.CBHolder == string.Empty)} transactions
+
+        //🎯 *État des Budgets Principaux*
+        //• ⚠️ *Budgets dépassés :* total = {sommeBudgetDépassés:F2} € ({string.Join(", ", budgetsDépassés.Select(b => b.Name))})
+        //├ {string.Join(@"
+        //├ ", recurrentDebitsResult.Value.Where(r => r.CurrentState.Contains("Dépassé", StringComparison.InvariantCultureIgnoreCase) && r.Progressive).OrderBy(r => r.CurrentState).Select(r => r.Icon + " " + r.Name + " : " + r.CurrentState))}
+
+        //• 🟢 *Autres budgets :*
+        //├ {string.Join(@"
+        //├ ", recurrentDebitsResult.Value.Where(r => !r.CurrentState.Contains("Dépassé", StringComparison.InvariantCultureIgnoreCase) && r.Progressive).OrderByDescending(r => r.CurrentState).Select(r => r.Icon + " " + r.Name + " : " + r.CurrentState))}
+
+        //🔮 *Projection Fin de Mois*
+        //• 💸 Dépensé global : {TotalDepenseMois:F2} € / {recurrentDebitsResult.Value.Sum(r => r.Amount):F2} € prévus
+        //• 🏁 Estimation fin de mois : {situation.ExpectedEndOfMonth:F2} €
+        //";
 
         string messageTelegram = $@"
-📊 *Résumé Budget - {MoisEnCours}*
+📊 <b>Résumé Budget {currentBillingMonthResult.Value.Name}</b>
 
-🏦 *État des comptes*
-• Solde visible CIC : *{SoldeVisibleCic:F2} €*
-• En-cours Cartes : *{TotalEnCoursCartes:F2} €*
-  ├ 👱‍ Adrien : {EnCoursCarteAdrien:F2} €
-  └ 👩 Justine : {EnCoursCarteJustine:F2} €
+🏦 <b>État des comptes</b>
+• Solde visible CIC : <b>{situation.BankVisible:F2} €</b>
+• Encours Cartes : <b>{situation.BankTotalCards:F2} €</b>
+  ├ 👱‍♂️ Adrien : {situation.BankAdrienCard:F2} €
+  └ 👩 Justine : {situation.BankJustineCard:F2} €
 
-⏳ *Dépenses en attente & à venir*
-• Dépenses pas visibles CIC : *{TotalDepensesNonPointees:F2} €*
-  ├ 👱‍ Adrien : {awaitingExpensesResult.Value.Where(d => d.CBHolder == "Adrien").Sum(d => d.Amount):F2} € - {awaitingExpensesResult.Value.Count(d => d.CBHolder == "Adrien")} transactions
-  ├ 👩 Justine : {awaitingExpensesResult.Value.Where(d => d.CBHolder == "Justine").Sum(d => d.Amount):F2} € - {awaitingExpensesResult.Value.Count(d => d.CBHolder == "Justine")} transactions
-  └ Autres : {awaitingExpensesResult.Value.Where(d => d.CBHolder == string.Empty).Sum(d => d.Amount):F2} € - {awaitingExpensesResult.Value.Count(d => d.CBHolder == string.Empty)} transactions
+⏳ <b>Dépenses en attente &amp; à venir</b>
+• Dépenses pas visibles CIC : <b>{awaitingExpensesResult.Value.Sum(d => d.Amount):F2} €</b>
+  ├ 👱‍♂️ Adrien : {awaitingExpensesResult.Value.Where(d => d.CBHolder == "Adrien").Sum(d => d.Amount):F2} € ({awaitingExpensesResult.Value.Count(d => d.CBHolder == "Adrien")} transactions)
+<blockquote expandable>{string.Join("\n", awaitingExpensesResult.Value.Where(d => d.CBHolder == "Adrien").Select(d => $"• {d.Description} - {d.Amount:F2} €"))}</blockquote>
+  ├ 👩 Justine : {awaitingExpensesResult.Value.Where(d => d.CBHolder == "Justine").Sum(d => d.Amount):F2} € ({awaitingExpensesResult.Value.Count(d => d.CBHolder == "Justine")} transactions)
+<blockquote expandable>{string.Join("\n", awaitingExpensesResult.Value.Where(d => d.CBHolder == "Justine").Select(d => $"• {d.Description} - {d.Amount:F2} €"))}</blockquote>
+  └ Autres : {awaitingExpensesResult.Value.Where(d => d.CBHolder == string.Empty).Sum(d => d.Amount):F2} € ({awaitingExpensesResult.Value.Count(d => d.CBHolder == string.Empty)} transactions)
 
-🎯 *État des Budgets Principaux*
-• ⚠️ *Budgets dépassés :* total = {sommeBudgetDépassés:F2} € ({string.Join(", ", budgetsDépassés.Select(b => b.Name))})
-├ {string.Join(@"
-├ ", recurrentDebitsResult.Value.Where(r => r.CurrentState.Contains("Dépassé", StringComparison.InvariantCultureIgnoreCase) && r.Progressive).OrderBy(r => r.CurrentState).Select(r => r.Icon + " " + r.Name + " : " + r.CurrentState))}
+🎯 <b>État des Budgets Principaux</b>
+• ⚠️ <b>Budgets dépassés :</b> total = {sommeBudgetDépassés:F2} € ({string.Join(", ", budgetsDépassés.Select(b => b.Name))})
+<blockquote expandable>{string.Join("\n├ ", recurrentDebitsResult.Value.Where(r => r.CurrentState.Contains("Dépassé", StringComparison.InvariantCultureIgnoreCase) && r.Progressive).OrderBy(r => r.CurrentState).Select(r => r.Icon + " " + r.Name + " : " + r.CurrentState))}</blockquote>
 
-• 🟢 *Autres budgets :*
-├ {string.Join(@"
-├ ", recurrentDebitsResult.Value.Where(r => !r.CurrentState.Contains("Dépassé", StringComparison.InvariantCultureIgnoreCase) && r.Progressive).OrderByDescending(r => r.CurrentState).Select(r => r.Icon + " " + r.Name + " : " + r.CurrentState))}
+• 🟢 <b>Autres budgets :</b>
+<blockquote expandable>{string.Join("\n├ ", recurrentDebitsResult.Value.Where(r => !r.CurrentState.Contains("Dépassé", StringComparison.InvariantCultureIgnoreCase) && r.Progressive).OrderByDescending(r => r.CurrentState).Select(r => r.Icon + " " + r.Name + " : " + r.CurrentState))}</blockquote>
 
-🔮 *Projection Fin de Mois*
-• 💸 Dépensé global : {TotalDepenseMois:F2} € / {TotalPrevuMois:F2} € prévus
-• 🏁 Estimation fin de mois : {ResteFinMois:F2} €
+🔮 <b>Projection Fin de Mois</b>
+• 💸 Dépensé global : {TotalDepenseMois:F2} € / {recurrentDebitsResult.Value.Sum(r => r.Amount):F2} € prévus
+• 🏁 Estimation fin de mois : <b>{situation.ExpectedEndOfMonth:F2} €</b>
 ";
 
-
-        return new UserRequestResponse(messageTelegram);
+        return new UserRequestResponse(messageTelegram, UseHtml: true);
     }
 
     private async Task<Result<UserRequestResponse>> HandleSyncRecurrentDebits(CancellationToken cancellationToken)

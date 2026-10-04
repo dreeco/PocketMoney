@@ -1,2 +1,2 @@
 ﻿namespace Domain.BudgetEntities;
-public record UserRequestResponse(string Answer, IEnumerable<Button>? Buttons = null);
+public record UserRequestResponse(string Answer, IEnumerable<Button>? Buttons = null, bool UseHtml = false);

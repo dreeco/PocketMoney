@@ -41,7 +41,7 @@ public class BudgetNotifier : IBudgetNotifier
             Bot.SendMessage(
                 chatId: userId,
                 text: response.Answer,
-                parseMode: ParseMode.Markdown,
+                parseMode: response.UseHtml ? ParseMode.Html : ParseMode.Markdown,
                 replyMarkup: inlinedButton,
                 cancellationToken: cancellationToken
             )
