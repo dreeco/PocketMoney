@@ -23,7 +23,7 @@ internal static class NotionHelper
         return queryParameters;
     }
 
-    public  static async Task<Page> CreateNotionPage(NotionClient client, ILogger logger, PagesCreateParameters createPageParameters, CancellationToken cancellationToken)
+    public static async Task<Page> CreateNotionPage(NotionClient client, ILogger logger, PagesCreateParameters createPageParameters, CancellationToken cancellationToken)
     {
         var stopWatch = GetStartedStopWatch();
 
@@ -121,9 +121,9 @@ internal static class NotionHelper
                     return Result.Failure<string>("Property value is null.");
                 return title;
             case SelectPropertyValue selectPropertyValue:
-                var select = selectPropertyValue.Select.Name;
+                var select = selectPropertyValue.Select?.Name;
                 if (select is null)
-                    return Result.Failure<string>("Property value is null.");
+                    return string.Empty;
                 return select;
             case FormulaPropertyValue formulaPropertyValue:
                 var formula = formulaPropertyValue?.Formula;
@@ -176,6 +176,23 @@ internal static class NotionHelper
                 if (number.Number is null)
                     return Result.Failure<double>("Property value is null.");
                 return number.Number.Value;
+            case RollupPropertyValue rollup:
+                if (rollup.Rollup is null)
+                    return Result.Failure<double>("Rollup is null.");
+
+                // Cas 1 : Rollup avec calcul (Somme, Moyenne, etc.)
+                if (rollup.Rollup.Number.HasValue)
+                    return rollup.Rollup.Number.Value;
+
+                // Cas 2 : Rollup sous forme de liste ("Afficher l'original")
+                if (rollup.Rollup.Array is { Count: > 0 })
+                {
+                    // Appelle récursivement GetDouble sur le premier élément
+                    return GetDouble(rollup.Rollup.Array.FirstOrDefault());
+                }
+
+                return Result.Failure<double>("Rollup does not contain a numeric value.");
+
             default:
                 return Result.Failure<double>("Property value is not mapped to int.");
         }
@@ -201,6 +218,21 @@ internal static class NotionHelper
                     return Result.Failure<DateTimeOffset>("Property value is null.");
 
                 return parsedDate.Value;
+
+            case FormulaPropertyValue formula:
+                // 1. Native Date Formula result
+                if (formula.Formula?.Date?.Start is not null)
+                    return formula.Formula.Date.Start.Value;
+
+                // 2. String Formula result (e.g. using formatDate() in Notion)
+                if (!string.IsNullOrWhiteSpace(formula.Formula?.String) &&
+                    DateTimeOffset.TryParse(formula.Formula.String, out var parsedFormulaDate))
+                {
+                    return parsedFormulaDate;
+                }
+
+                return Result.Failure<DateTimeOffset>("Formula does not evaluate to a valid date.");
+            
             default:
                 return Result.Failure<DateTimeOffset>("Property value is not mapped to date.");
         }

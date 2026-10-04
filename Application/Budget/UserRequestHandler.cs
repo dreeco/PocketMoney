@@ -4,6 +4,8 @@ using Domain.PocketMoneyEntities;
 using Domain.Repositories;
 using Domain.Services;
 using Microsoft.Extensions.Logging;
+using System.Globalization;
+using System.Text.RegularExpressions;
 
 namespace Application.Budget;
 
@@ -30,6 +32,19 @@ public class UserRequestHandler : IUserRequestHandler
 
     public async Task<Result> ParseMessage(UserMessage userMessage, CancellationToken cancellationToken)
     {
+        //if (userMessage.Text.Equals("Situation", StringComparison.InvariantCultureIgnoreCase))
+        //{
+        //    var responseSummary = await HandleSituationSummary2(userMessage.Text, cancellationToken);
+        //    if (responseSummary.IsFailure)
+        //        return Result.Failure(responseSummary.Error);
+
+        //    var result = await _budgetNotifier.SendMessageToUniqueUser(userMessage.User.Id, responseSummary.Value, cancellationToken);
+        //    if (result.IsFailure)
+        //        _logger.LogError(result.Error);
+
+        //    return Result.Success();
+        //}
+
         var actionResult = await _genAiBudgetService.ParseRouteFromMessage(userMessage.Text, cancellationToken);
 
         var userId = userMessage.User.Id;
@@ -158,28 +173,106 @@ public class UserRequestHandler : IUserRequestHandler
         return new UserRequestResponse(text, [button]);
     }
 
+    //private async Task<Result<UserRequestResponse>> HandleSituationSummary(string userMessage, CancellationToken cancellationToken)
+    //{
+    //    // 1. Lancer les deux opérations en parallèle
+    //    var recurringDebitsTask = _repository.FetchAllRecurringDebits(cancellationToken);
+    //    var billingMonthsTask = _repository.FetchAllBillingMonths(cancellationToken);
+
+    //    // 2. Attendre que les deux tâches soient terminées
+    //    await Task.WhenAll(recurringDebitsTask, billingMonthsTask);
+
+    //    // 3. Récupérer les résultats
+    //    var recurringDebitsResult = await recurringDebitsTask;
+    //    var billingMonthsResult = await billingMonthsTask;
+
+    //    // 4. Valider les échecs
+    //    if (recurringDebitsResult.IsFailure || billingMonthsResult.IsFailure)
+    //        return Result.Failure<UserRequestResponse>(Result.Combine([recurringDebitsResult, billingMonthsResult]).Error);
+
+    //    var situation = await _genAiBudgetService.EvaluateSituation(userMessage, recurringDebitsResult.Value, billingMonthsResult.Value, cancellationToken);
+    //    if (situation.IsFailure)
+    //        return Result.Failure<UserRequestResponse>(situation.Error);
+
+    //    return new UserRequestResponse(situation.Value.Summary);
+    //}
+
+
     private async Task<Result<UserRequestResponse>> HandleSituationSummary(string userMessage, CancellationToken cancellationToken)
     {
-        // 1. Lancer les deux opérations en parallèle
-        var recurringDebitsTask = _repository.FetchAllRecurringDebits(cancellationToken);
-        var billingMonthsTask = _repository.FetchAllBillingMonths(cancellationToken);
+        var currentBillingMonthTask = _repository.GetCurrentBillingMonth(cancellationToken);
+        var awaitingExpensesTask = _repository.GetDebits(awaiting: true, cancellationToken);
+        var recurrentDebitsTask = _repository.GetCurrentMonthRecurrentDebits(cancellationToken);
 
-        // 2. Attendre que les deux tâches soient terminées
-        await Task.WhenAll(recurringDebitsTask, billingMonthsTask);
+        await Task.WhenAll([currentBillingMonthTask, awaitingExpensesTask, recurrentDebitsTask]);
 
-        // 3. Récupérer les résultats
-        var recurringDebitsResult = await recurringDebitsTask;
-        var billingMonthsResult = await billingMonthsTask;
 
-        // 4. Valider les échecs
-        if (recurringDebitsResult.IsFailure || billingMonthsResult.IsFailure)
-            return Result.Failure<UserRequestResponse>(Result.Combine([recurringDebitsResult, billingMonthsResult]).Error);
+        var currentBillingMonthResult = await currentBillingMonthTask;
+        if (currentBillingMonthResult.IsFailure)
+            return Result.Failure<UserRequestResponse>(currentBillingMonthResult.Error);
 
-        var situation = await _genAiBudgetService.EvaluateSituation(userMessage, recurringDebitsResult.Value, billingMonthsResult.Value, cancellationToken);
-        if (situation.IsFailure)
-            return Result.Failure<UserRequestResponse>(situation.Error);
+        var awaitingExpensesResult = await awaitingExpensesTask;
+        if (awaitingExpensesResult.IsFailure)
+            return Result.Failure<UserRequestResponse>(awaitingExpensesResult.Error);
 
-        return new UserRequestResponse(situation.Value.Summary);
+        var recurrentDebitsResult = await recurrentDebitsTask;
+        if (recurrentDebitsResult.IsFailure)
+            return Result.Failure<UserRequestResponse>(recurrentDebitsResult.Error);
+
+
+        var situation = currentBillingMonthResult.Value.Situation;
+        var MoisEnCours = currentBillingMonthResult.Value.Name;
+        var SoldeVisibleCic = situation.BankVisible;
+        var TotalEnCoursCartes = situation.BankTotalCards;
+        var EnCoursCarteAdrien = situation.BankAdrienCard;
+        var EnCoursCarteJustine = situation.BankJustineCard;
+        var TotalDepensesNonPointees = awaitingExpensesResult.Value.Sum(d => d.Amount);
+        var NbDepensesNonPointees = awaitingExpensesResult.Value.Count();
+        var DepensesAVenir = awaitingExpensesResult.Value.Sum(e => e.Amount);
+
+        var budgetsDépassés = recurrentDebitsResult.Value.Where(r => r.CurrentState.Contains("Dépassé", StringComparison.InvariantCultureIgnoreCase));
+        var sommeBudgetDépassés = budgetsDépassés.Sum(b =>
+        {
+            var match = Regex.Match(b.CurrentState, @"\((\d+(?:[.,]\d+)?)\s*€\)");
+            if (!match.Success)
+                return 0;
+            return double.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
+        });
+
+
+        double TotalDepenseMois = situation.Spent, TotalPrevuMois = recurrentDebitsResult.Value.Sum(r => r.Amount), ResteFinMois = situation.ExpectedEndOfMonth;
+
+        string messageTelegram = $@"
+📊 *Résumé Budget - {MoisEnCours}*
+
+🏦 *État des comptes*
+• Solde visible CIC : *{SoldeVisibleCic:F2} €*
+• En-cours Cartes : *{TotalEnCoursCartes:F2} €*
+  ├ 👱‍ Adrien : {EnCoursCarteAdrien:F2} €
+  └ 👩 Justine : {EnCoursCarteJustine:F2} €
+
+⏳ *Dépenses en attente & à venir*
+• Dépenses pas visibles CIC : *{TotalDepensesNonPointees:F2} €*
+  ├ 👱‍ Adrien : {awaitingExpensesResult.Value.Where(d => d.CBHolder == "Adrien").Sum(d => d.Amount):F2} € - {awaitingExpensesResult.Value.Count(d => d.CBHolder == "Adrien")} transactions
+  ├ 👩 Justine : {awaitingExpensesResult.Value.Where(d => d.CBHolder == "Justine").Sum(d => d.Amount):F2} € - {awaitingExpensesResult.Value.Count(d => d.CBHolder == "Justine")} transactions
+  └ Autres : {awaitingExpensesResult.Value.Where(d => d.CBHolder == string.Empty).Sum(d => d.Amount):F2} € - {awaitingExpensesResult.Value.Count(d => d.CBHolder == string.Empty)} transactions
+
+🎯 *État des Budgets Principaux*
+• ⚠️ *Budgets dépassés :* total = {sommeBudgetDépassés:F2} € ({string.Join(", ", budgetsDépassés.Select(b => b.Name))})
+├ {string.Join(@"
+├ ", recurrentDebitsResult.Value.Where(r => r.CurrentState.Contains("Dépassé", StringComparison.InvariantCultureIgnoreCase) && r.Progressive).OrderBy(r => r.CurrentState).Select(r => r.Icon + " " + r.Name + " : " + r.CurrentState))}
+
+• 🟢 *Autres budgets :*
+├ {string.Join(@"
+├ ", recurrentDebitsResult.Value.Where(r => !r.CurrentState.Contains("Dépassé", StringComparison.InvariantCultureIgnoreCase) && r.Progressive).OrderByDescending(r => r.CurrentState).Select(r => r.Icon + " " + r.Name + " : " + r.CurrentState))}
+
+🔮 *Projection Fin de Mois*
+• 💸 Dépensé global : {TotalDepenseMois:F2} € / {TotalPrevuMois:F2} € prévus
+• 🏁 Estimation fin de mois : {ResteFinMois:F2} €
+";
+
+
+        return new UserRequestResponse(messageTelegram);
     }
 
     private async Task<Result<UserRequestResponse>> HandleSyncRecurrentDebits(CancellationToken cancellationToken)

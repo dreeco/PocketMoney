@@ -7,7 +7,6 @@ using Microsoft.Extensions.Logging;
 using Notion.Client;
 using System.Data;
 using System.Diagnostics;
-using System.Net;
 
 namespace Infrastructure.DataAccess;
 
@@ -42,6 +41,20 @@ public class BudgetRepository : IBudgetRepository
         NotionDatasetExporter = new NotionDatasetExporter(Client, logger);
     }
 
+    public async Task<Result<IEnumerable<Expense>>> GetDebits(bool awaiting, CancellationToken cancellationToken)
+    {
+        var today = TimeProvider.GetUtcNow().Date;
+
+        var queryParameters = NotionHelper.GetParameters([new DateFilter("Date Apparition CIC", onOrAfter: DateTime.UtcNow.Date)]);
+        var response = await QueryNotionBudgetPage(DebitsDataset, queryParameters, cancellationToken);
+
+        return Result.Success(
+            response.Results
+                .Select(r => GetExpenseFromPage(r as Page))
+                .Select(r => r.Value)
+            );
+    }
+
     public async Task<Result<BillingMonth>> GetCurrentBillingMonth(CancellationToken cancellationToken)
     {
         var today = TimeProvider.GetUtcNow().Date;
@@ -66,14 +79,62 @@ public class BudgetRepository : IBudgetRepository
             return Result.Failure<BillingMonth>("No billing month found.");
 
         var name = NotionHelper.GetString(page.Properties["Name"]);
+        var initialAmount = NotionHelper.GetDouble(page.Properties["Montant Initial"]);
+        var actualBank = NotionHelper.GetDouble(page.Properties["Montant actuel CIC"]);
+        var actualCards = NotionHelper.GetDouble(page.Properties["En cours cartes CIC"]);
+        var actualCardAdrien = NotionHelper.GetDouble(page.Properties["En cours carte CIC Adrien"]);
+        var actualCardJustine = NotionHelper.GetDouble(page.Properties["En cours carte CIC Justine"]);
+        var leftEndOfMonth = NotionHelper.GetDouble(page.Properties["Reste à la fin du mois"]);
+        var spent = NotionHelper.GetDouble(page.Properties["Dépensé"]);
 
-        if (!name.IsSuccess)
-            return Result.Failure<BillingMonth>($"Errors: {(name.IsSuccess ? "" : name.Error)}");
+        var results = new Result[] { name, initialAmount, actualBank, actualCards, actualCardAdrien, actualCardJustine, leftEndOfMonth, spent }.Where(r => r.IsFailure);
+        if (results.Any())
+            return Result.Failure<BillingMonth>($"Errors: {string.Join(", ", results.Select(r => r.Error))}");
 
         return new BillingMonth(
             page.Id,
             name.Value,
-            new AccountSituation());
+            new AccountSituation(initialAmount.Value, actualBank.Value, actualCards.Value, actualCardAdrien.Value, actualCardJustine.Value, leftEndOfMonth.Value, spent.Value));
+    }
+
+    private Result<Expense> GetExpenseFromPage(Page? page)
+    {
+        if (page == null)
+            return Result.Failure<Expense>("No billing month found.");
+
+        var name = NotionHelper.GetString(page.Properties["Titre"]);
+        var category = NotionHelper.GetString(page.Properties["Catégorie"]);
+        var cbHolder = NotionHelper.GetString(page.Properties["CB"]);
+        var recurringDebit = NotionHelper.GetString(page.Properties["Dépenses récurrentes"]);
+        var amount = NotionHelper.GetDouble(page.Properties["Montant"]);
+        var isTransfer = NotionHelper.GetBoolean(page.Properties["Virement"]);
+
+        var results = new Result[] { name }.Where(r => r.IsFailure);
+        if (results.Any())
+            return Result.Failure<Expense>($"Errors: {string.Join(", ", results.Select(r => r.Error))}");
+
+        return new Expense
+        {
+            Amount = amount.Value,
+            Category = category.Value,
+            CBHolder = cbHolder.Value,
+            Description = name.Value,
+            IsTransfer = isTransfer.Value,
+            PageUrl = page.Url,
+            RecurringDebitId = recurringDebit.Value,
+        };
+    }
+
+    public async Task<Result<IEnumerable<RecurringDebitPage>>> GetCurrentMonthRecurrentDebits(CancellationToken cancellationToken)
+    {
+        var queryParameters = NotionHelper.GetParameters([new FormulaFilter("Budget mois courant", @string: new TextFilter.Condition(doesNotEqual: "Pas ce mois-ci"))]);
+
+        var response = await QueryNotionBudgetPage(RecurringDebitsDataset, queryParameters, cancellationToken);
+
+        return Result.Success(response.Results
+            .Select(r => GetRecurringDebitFromPage(r as Page))
+            .Select(r => r.Value));
+
     }
 
     public async Task<Result<IEnumerable<RecurringDebitPage>>> GetRecurrentDebitsWithNoExpenseForCurrentMonth(CancellationToken cancellationToken)
@@ -83,7 +144,7 @@ public class BudgetRepository : IBudgetRepository
             new FormulaFilter("Date Débit Estimé", date: new DateFilter.Condition(onOrBefore: DateTime.Now.Date)),
             new CheckboxFilter("Automatique", equal: true)
             ]);
-        
+
         var response = await QueryNotionBudgetPage(RecurringDebitsDataset, queryParameters, cancellationToken);
 
         return Result.Success(response.Results
@@ -100,14 +161,17 @@ public class BudgetRepository : IBudgetRepository
         var amount = NotionHelper.GetDouble(page.Properties["Montant"]);
         var category = NotionHelper.GetString(page.Properties["Catégorie"]);
         var progressive = NotionHelper.GetBoolean(page.Properties["Progressif"]);
-        var currentState = NotionHelper.GetString(page.Properties["Budget mois courant"]);
+        var currentState = NotionHelper.GetString(page.Properties["Budget mois courant cours"]);
         var isTransfer = NotionHelper.GetBoolean(page.Properties["Virement"]);
+        var date = NotionHelper.GetDate(page.Properties["Date Débit Estimé"]);
 
-        var results = new Result[] { name, amount, category, progressive, currentState, isTransfer }.Where(r => r.IsFailure);
+        var results = new Result[] { name, amount, category, progressive, currentState, isTransfer, date }.Where(r => r.IsFailure);
         if (results.Any())
             return Result.Failure<RecurringDebitPage>($"Errors: {String.Join(", ", results.Select(r => r.Error))}");
 
-        return new RecurringDebitPage(page.Id, name.Value, amount.Value, category.Value, progressive.Value, currentState.Value, isTransfer.Value);
+        string icon = page.Icon is EmojiObject emojiIcon ? emojiIcon.Emoji : string.Empty;
+
+        return new RecurringDebitPage(page.Id, icon, name.Value, amount.Value, category.Value, progressive.Value, currentState.Value, isTransfer.Value, date.Value);
     }
 
     public async Task<Result<IEnumerable<BasePage>>> CreateExpenses(IEnumerable<Expense> expenses, CancellationToken cancellationToken)
@@ -222,8 +286,8 @@ public class BudgetRepository : IBudgetRepository
             Parent = new DatabaseParentInput { DatabaseId = CreditsDataset },
             Properties = properties
         };
-        
-        var  page = await NotionHelper.CreateNotionPage(Client, _logger, createPageParameters, cancellationToken);
+
+        var page = await NotionHelper.CreateNotionPage(Client, _logger, createPageParameters, cancellationToken);
         if (page == null)
             return Result.Failure<BasePage>("Could not create Notion page");
 

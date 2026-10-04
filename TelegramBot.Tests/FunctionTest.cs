@@ -235,7 +235,21 @@ public class FunctionTest
         var budgetNotifier = new BudgetNotifier(new TelegramBotClient(telegramBotToken));
 
         var userRequestHandler = new UserRequestHandler(userRequestHandlerLogger, budgetRepository, genAiBudgetService, budgetNotifier);
-        var userMessage = new UserMessage("reçcu remboursement Julien 12.5", new Domain.PocketMoneyEntities.User("Adrien", 8662514156));
+        var userMessage = new UserMessage("reçcu remboursement Julien 12.5", new Domain.PocketMoneyEntities.User("Adrien", 8818144478));
+        var result = await userRequestHandler.ParseMessage(userMessage, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+    }
+
+    [Fact]
+    public async Task TestNewSituation()
+    {
+        var budgetRepository = new BudgetRepository(budgetRepositoryLogger, Configuration, TimeProvider.System);
+        var genAiBudgetService = new GenAiBudgetService(genAiBudgetServiceLogger, geminiApiKey);
+        var budgetNotifier = new BudgetNotifier(new TelegramBotClient(telegramBotToken));
+
+        var userRequestHandler = new UserRequestHandler(userRequestHandlerLogger, budgetRepository, genAiBudgetService, budgetNotifier);
+        var userMessage = new UserMessage("Situation", new Domain.PocketMoneyEntities.User("Adrien", 8818144478));
         var result = await userRequestHandler.ParseMessage(userMessage, CancellationToken.None);
 
         Assert.True(result.IsSuccess);

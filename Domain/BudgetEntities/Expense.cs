@@ -30,5 +30,4 @@ public class Expense
 
     [JsonPropertyName("CB Holder")]
     public string CBHolder { get; set; } = string.Empty;
-
 }
